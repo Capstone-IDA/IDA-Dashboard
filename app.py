@@ -47,9 +47,9 @@ if not is_logged_in():
             if st.button("🛡️ 시스템 관리자", use_container_width=True):
                 login("admin", "admin123"); st.rerun()
             if st.button("🏢 스카이렌터카", use_container_width=True):
-                login("skyrent", "sky123"); st.rerun()
+                login("sky_rental", "sky1234"); st.rerun()
             if st.button("🏢 제주렌터카", use_container_width=True):
-                login("jejurent", "jeju123"); st.rerun()
+                login("jeju_rental", "jeju1234"); st.rerun()
             if st.button("🏢 스타렌터카", use_container_width=True):
                 login("starrent", "star123"); st.rerun()
             st.markdown("")
@@ -144,7 +144,7 @@ if role == "admin":
 
 # ── 컴패니 홈 ──
 else:
-    company_map = {"skyrent": "스카이렌터카", "jejurent": "제주렌터카", "starrent": "스타렌터카"}
+    company_map = {"sky_rental": "스카이렌터카", "jeju_rental": "제주렌터카", "starrent": "스타렌터카"}
     company_id = get_company_id()
     my_company = company_map.get(company_id, "스카이렌터카")
 

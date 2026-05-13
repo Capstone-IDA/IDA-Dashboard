@@ -142,7 +142,7 @@ event_stats = pd.DataFrame({
 
 # ── 업체 선택 ──
 companies = ["스카이렌터카", "제주렌터카", "스타렌터카"]
-company_map = {"skyrent": "스카이렌터카", "jejurent": "제주렌터카", "starrent": "스타렌터카"}
+company_map = {"sky_rental": "스카이렌터카", "jeju_rental": "제주렌터카", "starrent": "스타렌터카"}
 
 st.title("🏢 Company Dashboard")
 
