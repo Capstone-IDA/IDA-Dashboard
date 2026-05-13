@@ -5,6 +5,7 @@ ACCOUNTS = {
     "skyrent":  {"password": "sky123",   "role": "company", "company_id": "skyrent",  "company_name": "스카이렌터카"},
     "jejurent": {"password": "jeju123",  "role": "company", "company_id": "jejurent", "company_name": "제주렌터카"},
     "starrent": {"password": "star123",  "role": "company", "company_id": "starrent", "company_name": "스타렌터카"},
+    "driver1":  {"password": "driver123","role": "driver",  "company_id": "driver1",  "company_name": "차량 단말"},
 }
 
 def login(user_id: str, password: str) -> bool:
