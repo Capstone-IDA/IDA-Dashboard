@@ -1,7 +1,7 @@
 import requests
 import streamlit as st
 
-# auth.py와 동일한 BASE_URL 사용
+# BASE_URL
 BASE_URL = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
 
 def _headers():
@@ -14,7 +14,6 @@ def _headers():
 def api_get(endpoint: str, params: dict = None):
     """
     GET 요청. 성공 시 JSON 반환, 실패 시 None.
-    사용법: data = api_get("/company/dashboard")
     """
     try:
         resp = requests.get(
@@ -33,7 +32,6 @@ def api_get(endpoint: str, params: dict = None):
 def api_post(endpoint: str, json_data: dict = None):
     """
     POST 요청. 성공 시 JSON 반환, 실패 시 None.
-    사용법: data = api_post("/session/start", {"user_id": "...", "vehicle_id": "...", "scenario": "normal"})
     """
     try:
         resp = requests.post(

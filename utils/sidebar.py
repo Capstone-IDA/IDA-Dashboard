@@ -23,6 +23,7 @@ def render_sidebar():
 
         st.page_link("app.py",           label="홈",                icon="🏠")
         st.page_link("pages/company.py", label="Company Dashboard", icon="🏢")
+        st.page_link("pages/manage.py",  label="업체 관리",          icon="📋")
         if role == "admin":
             st.page_link("pages/admin.py", label="Admin Dashboard", icon="🛡️")
 
