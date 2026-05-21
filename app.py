@@ -80,7 +80,6 @@ if role == "driver":
 render_sidebar()
 company_name = get_company_name()
 
-# 서버 연결 상태 표시
 if is_online():
     st.caption("🟢 서버 연결됨")
 else:
@@ -92,7 +91,6 @@ if role == "admin":
     st.markdown("플랫폼 전체 현황을 확인하세요.")
     st.divider()
 
-    # API에서 데이터 가져오기
     admin_data = api_get("/admin/dashboard")
 
     if admin_data and isinstance(admin_data, dict):
@@ -102,14 +100,12 @@ if role == "admin":
         total_blacklist = admin_data.get("blacklist_count", 0)
         company_count   = admin_data.get("company_count", 3)
     else:
-        # 더미 데이터 폴백
         total_sessions  = 12
         total_events    = 47
         avg_score_total = 74
         total_blacklist = 3
         company_count   = 3
 
-    # 전체 현황
     st.subheader("📊 전체 현황")
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("등록 업체 수", f"{company_count}개")
@@ -120,19 +116,11 @@ if role == "admin":
 
     st.divider()
 
-    # 업체별 비교 차트 (API에서 업체 목록 가져오기)
     companies_data = api_get("/auth/companies")
-
-    if companies_data and isinstance(companies_data, list) and len(companies_data) > 0:
-        company_names = [c.get("company_name", "unknown") for c in companies_data]
-        # 각 업체별 데이터는 추가 API 호출이 필요할 수 있음
-    else:
-        company_names = ["스카이렌터카", "제주렌터카", "스타렌터카"]
 
     company_chart_data = {
         "스카이렌터카": {"sessions": 5,  "events": 18, "avg_score": 68, "blacklist": 1},
         "제주렌터카":   {"sessions": 4,  "events": 21, "avg_score": 74, "blacklist": 2},
-        "스타렌터카":   {"sessions": 3,  "events": 8,  "avg_score": 81, "blacklist": 0},
     }
 
     st.subheader("🏢 업체별 현황 비교")
@@ -142,7 +130,6 @@ if role == "admin":
         "업체": list(company_chart_data.keys()),
         "평균점수": [v["avg_score"] for v in company_chart_data.values()],
         "위험이벤트": [v["events"] for v in company_chart_data.values()],
-        "블랙리스트": [v["blacklist"] for v in company_chart_data.values()],
     })
 
     with chart_col1:
@@ -159,7 +146,6 @@ if role == "admin":
 
     st.divider()
 
-    # 시스템 상태
     st.subheader("⚙️ 시스템 상태")
     health = api_get("/health")
     s1, s2, s3, s4 = st.columns(4)
@@ -179,7 +165,6 @@ else:
     st.title(f"🏢 {company_name} 홈")
     st.divider()
 
-    # API에서 대시보드 데이터 가져오기
     dashboard = api_get("/company/dashboard")
 
     if dashboard and isinstance(dashboard, dict) and dashboard.get("total_sessions", 0) > 0:
@@ -187,30 +172,32 @@ else:
         events    = dashboard.get("total_events", 0)
         avg_score = dashboard.get("avg_final_score", 0)
     else:
-        # 더미 데이터 폴백
-        company_map = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카", "starrent": "스타렌터카"}
+        company_map = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
         company_id = get_company_id()
         my_company = company_map.get(company_id, "스카이렌터카")
         dummy = {
             "스카이렌터카": {"sessions": 5, "events": 18, "avg_score": 68},
             "제주렌터카":   {"sessions": 4, "events": 21, "avg_score": 74},
-            "스타렌터카":   {"sessions": 3, "events": 8,  "avg_score": 81},
         }
         d = dummy.get(my_company, {"sessions": 0, "events": 0, "avg_score": 0})
         sessions  = d["sessions"]
         events    = d["events"]
         avg_score = d["avg_score"]
 
-    # 자사 현황
+    # 차량·고객 수
+    vehicle_count = dashboard.get("vehicle_count", 0) if dashboard and isinstance(dashboard, dict) else 0
+    customer_count = dashboard.get("customer_count", 0) if dashboard and isinstance(dashboard, dict) else 0
+
     st.subheader("📊 오늘 운행 현황")
-    m1, m2, m3 = st.columns(3)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("활성 세션",      f"{sessions}건")
     m2.metric("위험 이벤트",    f"{events}건",    delta=f"-3건", delta_color="inverse")
     m3.metric("평균 안전 점수", f"{avg_score}점",  delta="+2점")
+    m4.metric("등록 차량",      f"{vehicle_count}대")
+    m5.metric("등록 고객",      f"{customer_count}명")
 
     st.divider()
 
-    # 최근 이벤트 (API에서 가져오기)
     events_data = api_get("/company/events")
 
     al_col, sc_col = st.columns(2)
@@ -223,7 +210,6 @@ else:
                 icon = severity_colors.get(ev.get("severity", ""), "⚪")
                 st.markdown(f"{icon} **{ev.get('event_type', '')}** — {ev.get('description', '')} `{ev.get('timestamp', '')[:8]}`")
         else:
-            # 더미 데이터
             alerts = [
                 {"icon": "🔴", "car": "12가 3456", "event": "급제동 감지",  "time": "14:32:05"},
                 {"icon": "🔴", "car": "34나 7890", "event": "보행자 근접",  "time": "14:31:42"},
@@ -234,7 +220,6 @@ else:
 
     with sc_col:
         st.subheader("📈 이번 달 안전 점수 추이")
-        # 점수 타임라인 API
         scores_data = api_get("/company/scores")
 
         if scores_data and isinstance(scores_data, list) and len(scores_data) > 0:

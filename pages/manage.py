@@ -268,13 +268,17 @@ with tab_vehicle:
                 result = api_post("/company/vehicles", {
                     "plate": new_plate, "model": new_model, "year": new_year
                 })
-                if not result:
+                if result:
+                    plate_num = result.get("plate_number", new_plate)
+                    vid = result.get("vehicle_id", "")
+                    st.success(f"✅ 차량 {plate_num} 등록 완료! (ID: {vid})")
+                else:
                     st.session_state["vehicles"].append({
                         "plate": new_plate, "model": new_model,
                         "year": new_year, "status": "대기",
                         "registered": date.today().isoformat()
                     })
-                st.success(f"✅ {new_plate} ({new_model}) 등록 완료!")
+                    st.success(f"✅ {new_plate} ({new_model}) 등록 완료! (오프라인)")
                 st.rerun()
             else:
                 st.error("차량번호와 모델명을 입력해주세요.")
