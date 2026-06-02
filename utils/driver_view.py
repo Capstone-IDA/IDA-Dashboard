@@ -1,274 +1,261 @@
 import streamlit as st
+from pathlib import Path
+import os, subprocess, tempfile, json, requests
 import cv2
 import numpy as np
-from datetime import datetime
-from pathlib import Path
+from PIL import ImageFont, ImageDraw, Image
 
+# ── 설정 ──
+API_BASE = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
 
-# ── 위험도 판정 ──
-def get_risk(depth_val, obj_speed_px, is_moving):
-    if depth_val < 0.25:
-        return "DANGER", (79, 68, 239)
-    elif depth_val < 0.5:
-        if is_moving and obj_speed_px > 1.0:
-            return "DANGER", (79, 68, 239)
-        return "WARNING", (21, 204, 250)
-    return "SAFE", (248, 189, 56)
-
-
-def draw_bbox(frame, obj, frame_h, frame_w):
-    bbox = obj["bbox"]
-    x1 = int(bbox["x"] * frame_w)
-    y1 = int(bbox["y"] * frame_h)
-    x2 = int((bbox["x"] + bbox["w"]) * frame_w)
-    y2 = int((bbox["y"] + bbox["h"]) * frame_h)
-
-    risk, color = get_risk(obj["depth_val"], obj["obj_speed_px"], obj["is_moving"])
-
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
-    cv2.addWeighted(overlay, 0.08, frame, 0.92, 0, frame)
-
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-    clen = min(x2 - x1, y2 - y1) // 4
-    thickness = 3
-    cv2.line(frame, (x1, y1), (x1 + clen, y1), color, thickness)
-    cv2.line(frame, (x1, y1), (x1, y1 + clen), color, thickness)
-    cv2.line(frame, (x2, y1), (x2 - clen, y1), color, thickness)
-    cv2.line(frame, (x2, y1), (x2, y1 + clen), color, thickness)
-    cv2.line(frame, (x1, y2), (x1 + clen, y2), color, thickness)
-    cv2.line(frame, (x1, y2), (x1, y2 - clen), color, thickness)
-    cv2.line(frame, (x2, y2), (x2 - clen, y2), color, thickness)
-    cv2.line(frame, (x2, y2), (x2, y2 - clen), color, thickness)
-
-    label = f"{obj['class_name']} - {obj['confidence']:.0%}"
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.55
-    (tw, th), _ = cv2.getTextSize(label, font, font_scale, 1)
-    cv2.rectangle(frame, (x1, y1 - th - 14), (x1 + tw + 8, y1), color, -1)
-    cv2.putText(frame, label, (x1 + 4, y1 - 8), font, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
-
-    return frame
-
-
-def draw_hud_overlay(frame, data, frame_h, frame_w):
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.circle(frame, (20, 25), 6, (0, 0, 239), -1)
-    fps = data.get("system", {}).get("fps", 0)
-    cv2.putText(frame, f"REC  {fps:.0f} FPS", (32, 30), font, 0.5, (0, 0, 239), 1, cv2.LINE_AA)
-    fid = data.get("frame_id", 0)
-    cv2.putText(frame, f"F:{fid}", (frame_w - 70, 30), font, 0.45, (100, 110, 130), 1, cv2.LINE_AA)
-    return frame
-
-
-@st.cache_data
-def get_total_frames(video_path_str):
-    cap = cv2.VideoCapture(video_path_str)
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
-    return total
-
-
-def get_video_frame(video_path, frame_number):
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        return None
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-    ret, frame = cap.read()
-    cap.release()
-    return frame if ret else None
-
-
-# ── 더미 탐지 데이터 ──
-DUMMY_DETECT = {
-    "session_id": "a1b2c3d4-5678",
-    "frame_id": 847,
-    "timestamp": datetime.now().isoformat(),
-    "system": {"fps": 28.4, "inference_time_ms": 35.2},
-    "can": {
-        "speed_kmh": 12.5,
-        "acceleration": 0.8,
-        "brake_intensity": 0.0,
-        "scenario": "normal"
-    },
-    "objects": [
-        {
-            "class_id": 0, "class_name": "차량", "confidence": 0.95,
-            "bbox": {"x": 0.10, "y": 0.30, "w": 0.25, "h": 0.40},
-            "track_id": 5, "depth_val": 0.18,
-            "obj_speed_px": 2.4, "is_moving": True
-        },
-        {
-            "class_id": 1, "class_name": "보행자", "confidence": 0.70,
-            "bbox": {"x": 0.60, "y": 0.25, "w": 0.10, "h": 0.35},
-            "track_id": 12, "depth_val": 0.45,
-            "obj_speed_px": 1.1, "is_moving": True
-        },
-        {
-            "class_id": 2, "class_name": "기둥", "confidence": 0.92,
-            "bbox": {"x": 0.82, "y": 0.15, "w": 0.05, "h": 0.55},
-            "track_id": 3, "depth_val": 0.72,
-            "obj_speed_px": 0.0, "is_moving": False
-        },
-    ]
+DRIVER_MAP = {
+    "driver1": ("videos/test_scenario_1.mp4", "sess_scenario_1_ecae33"),
+    "driver2": ("videos/test_scenario_2.mp4", "sess_scenario_2_8eebf6"),
+    "driver3": ("videos/test_scenario_3.mp4", "sess_scenario_3_70fae7"),
+    "driver4": ("videos/test_scenario_4.mp4", "sess_test_99c74936"),
 }
 
+# ── 한글 폰트 로드 (없으면 None → OpenCV 기본) ──
+def load_font(size=22):
+    candidates = [
+        "C:/Windows/Fonts/malgunbd.ttf",     # 맑은 고딕 Bold (Windows) - 우선
+        "C:/Windows/Fonts/malgun.ttf",       # 맑은 고딕 Regular
+        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/nanum/NanumGothicBold.ttf",
+    ]
+    for p in candidates:
+        if Path(p).exists():
+            return ImageFont.truetype(p, size)
+    return None
+
+def draw_banner(frame_bgr, text, font, width, height):
+    """둥근 모서리 + 반투명 배너 PIL로 렌더링"""
+    bw = int(width * 0.38)   # 배너 폭 (화면의 38%)
+    bh = 80                   # 배너 높이
+    bx = (width - bw) // 2
+    by = 60
+
+    # PIL 이미지로 변환
+    img_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(img_rgb).convert("RGBA")
+
+    # 반투명 배너 레이어
+    overlay = Image.new("RGBA", pil_img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # 둥근 모서리 사각형 (반투명)
+    radius = 16
+    color = (210, 30, 30, 160)  # 빨강 반투명 강화 (alpha 160)
+    draw.rounded_rectangle([bx, by, bx+bw, by+bh], radius=radius, fill=color)
+
+    # 테두리 (약간 밝은 빨강)
+    draw.rounded_rectangle([bx, by, bx+bw, by+bh], radius=radius,
+                            outline=(240, 80, 80, 180), width=2)
+
+    # 합성
+    pil_img = Image.alpha_composite(pil_img, overlay).convert("RGB")
+
+    # 텍스트 정중앙 배치
+    draw2 = ImageDraw.Draw(pil_img)
+    bbox_t = font.getbbox(text)
+    text_w = bbox_t[2] - bbox_t[0]
+    text_h = bbox_t[3] - bbox_t[1]
+    text_x = bx + (bw - text_w) // 2
+    text_y = by + (bh - text_h) // 2 - bbox_t[1]
+
+    # 텍스트 그림자
+    draw2.text((text_x+2, text_y+2), text, font=font, fill=(0, 0, 0, 160))
+    # 텍스트
+    draw2.text((text_x, text_y), text, font=font, fill=(255, 255, 255))
+
+    return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+def fetch_logs(session_id: str, limit: int = 1000) -> dict:
+    """API에서 로그 데이터 가져오기"""
+    try:
+        r = requests.get(
+            f"{API_BASE}/logs",
+            params={"session_id": session_id, "limit": limit},
+            headers={"ngrok-skip-browser-warning": "true"},
+            timeout=30
+        )
+        return r.json()
+    except Exception as e:
+        return {"total_count": 0, "frames": [], "error": str(e)}
+
+DYNAMIC_CLASSES = {"Vehicle", "Human", "Two-wheeled Vehicle", "Wheelchair", "Stroller", "Shopping Cart", "Animal"}
+
+def build_frame_map(frames: list) -> dict:
+    """frame_number → 해당 프레임 최고 위험도 (동적 객체만)"""
+    fm = {}
+    for f in frames:
+        risks = [obj["risk_level"] for obj in f.get("objects", [])
+                 if obj.get("class_name") in DYNAMIC_CLASSES]
+        if "danger" in risks:
+            fm[f["frame_number"]] = "danger"
+        elif "warning" in risks:
+            fm[f["frame_number"]] = "warning"
+        else:
+            fm[f["frame_number"]] = "safe"
+    return fm
+
+def build_banner_frames(frame_map: dict, streak: int = 3) -> set:
+    """연속 streak프레임 이상 danger인 프레임 번호 집합 반환"""
+    sorted_frames = sorted(frame_map.keys())
+    danger_frames = set()
+    consecutive = 0
+    streak_start = []
+
+    for fn in sorted_frames:
+        if frame_map[fn] == "danger":
+            consecutive += 1
+            streak_start.append(fn)
+        else:
+            if consecutive >= streak:
+                danger_frames.update(streak_start)
+            consecutive = 0
+            streak_start = []
+
+    # 마지막 구간 처리
+    if consecutive >= streak:
+        danger_frames.update(streak_start)
+
+    return danger_frames
+
+def annotate_video(src: Path, frames: list, out: Path):
+    """AI bbox 구워진 영상 위에 배너만 덧그려서 저장"""
+    cap    = cv2.VideoCapture(str(src))
+    fps    = cap.get(cv2.CAP_PROP_FPS) or 24
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    tmp = out.with_suffix(".tmp.mp4")
+    writer = cv2.VideoWriter(
+        str(tmp),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps, (width, height)
+    )
+
+    font_lg = load_font(42)
+
+    frame_map     = build_frame_map(frames)
+    banner_frames = build_banner_frames(frame_map, streak=8)
+    print(f"[DEBUG] 배너 표시 프레임 수: {len(banner_frames)}")
+    print(f"[DEBUG] 배너 프레임 목록: {sorted(banner_frames)}")
+
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # ── 배너 (연속 3프레임 이상 danger인 경우만) ──
+        if frame_idx in banner_frames:
+            frame = draw_banner(frame, "추돌 주의", font_lg, width, height)
+
+        # REC 표시
+        cv2.circle(frame, (20, 20), 7, (0, 0, 220), -1)
+        cv2.putText(frame, f"REC  {int(fps)}FPS", (32, 26),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 220), 1, cv2.LINE_AA)
+
+        writer.write(frame)
+        frame_idx += 1
+
+    cap.release()
+    writer.release()
+
+    r = subprocess.run([
+        "ffmpeg", "-y", "-i", str(tmp),
+        "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.0",
+        "-movflags", "+faststart", str(out)
+    ], capture_output=True)
+    tmp.unlink(missing_ok=True)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="ignore"))
 
 def render_driver_dashboard():
-
-    # ── 스타일 ──
     st.markdown("""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+KR:wght@400;700;900&display=swap');
-        .stApp { background-color: #000000; color: #e0e6f0; }
-
-        header[data-testid="stHeader"] { display: none !important; }
-        .block-container { padding: 0.3rem 0 0 0 !important; max-width: 100% !important; }
-        div[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
-        .appview-container { padding-top: 0 !important; }
-        section.main > div { padding-top: 0 !important; }
-        #root > div:first-child { padding-top: 0 !important; }
-
-        div[data-testid="stSlider"] { padding: 0 0.5rem !important; }
-        div[data-testid="stSlider"] label { display: none !important; }
-        div[data-testid="stSlider"] > div { margin-top: -0.3rem !important; margin-bottom: -0.3rem !important; }
-
-        .alert-banner {
-            background: linear-gradient(135deg, rgba(220,38,38,0.92) 0%, rgba(185,28,28,0.92) 100%);
-            padding: 0.6rem 1.5rem; text-align: center;
-            border-radius: 14px;
-            box-shadow: 0 0 25px rgba(220,38,38,0.5);
-            animation: pulse-glow 1.5s ease-in-out infinite;
-            backdrop-filter: blur(4px);
-        }
-        @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 0 15px rgba(220,38,38,0.4); }
-            50% { box-shadow: 0 0 35px rgba(220,38,38,0.7); }
-        }
-        .alert-title {
-            font-family: 'Noto Sans KR', sans-serif;
-            font-weight: 900; color: #fff;
-        }
-        .alert-sub {
-            font-family: 'Noto Sans KR', sans-serif;
-            color: rgba(255,255,255,0.85);
-        }
-        .alert-banner-warning {
-            background: linear-gradient(135deg, rgba(217,119,6,0.92) 0%, rgba(180,83,9,0.92) 100%);
-            padding: 0.6rem 1.5rem; text-align: center;
-            border-radius: 14px;
-            box-shadow: 0 0 20px rgba(217,119,6,0.4);
-            backdrop-filter: blur(4px);
-        }
+        .stApp { background:#000 !important; }
+        header[data-testid="stHeader"]   { display:none !important; }
+        [data-testid="stSidebar"]        { display:none !important; }
+        [data-testid="stSidebarNav"]     { display:none !important; }
+        [data-testid="collapsedControl"] { display:none !important; }
+        .block-container { padding:0 !important; max-width:100% !important; }
+        section.main > div { padding-top:0 !important; }
+        div[data-testid="stVideo"] { padding:0 !important; }
+        video { width:100% !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    # ── 데이터 ──
-    data = DUMMY_DETECT
+    user_id = st.session_state.get("user_id", "driver1")
+    raw_rel, session_id = DRIVER_MAP.get(user_id, DRIVER_MAP["driver1"])
 
-    # ── 영상 ──
-    video_path = Path(__file__).parent.parent / "parking.mp4"
-    total_frames = get_total_frames(str(video_path))
+    # ── 활성 세션 파일 기록 (Company 대시보드 실시간 연동) ──
+    import time as _time
+    SCENARIO_INFO = {
+        "driver1": {"차량번호": "12가 3456", "운전자": "김철수", "면허번호": "경기-12-345678", "시나리오": "정상 주행", "company": "comp_sky"},
+        "driver2": {"차량번호": "34나 7890", "운전자": "이영희", "면허번호": "서울-08-112233", "시나리오": "차량 접근", "company": "comp_sky"},
+        "driver3": {"차량번호": "11바 1234", "운전자": "박민수", "면허번호": "인천-15-667788", "시나리오": "고속 주행", "company": "comp_jeju"},
+        "driver4": {"차량번호": "22사 5678", "운전자": "최지현", "면허번호": "경남-03-990011", "시나리오": "충돌 위험", "company": "comp_jeju"},
+    }
+    try:
+        active_info = SCENARIO_INFO.get(user_id, {})
+        active_data = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "started_at": _time.strftime("%H:%M:%S"),
+            **active_info
+        }
+        active_file = Path(os.getcwd()) / "active_session.json"
+        with open(active_file, "w", encoding="utf-8") as f:
+            json.dump(active_data, f, ensure_ascii=False)
+    except Exception:
+        pass
 
-    # ── 슬라이더 ──
-    frame_num = st.slider("frame", 0, max(total_frames - 1, 1), 100, label_visibility="collapsed")
+    search_bases = [Path(os.getcwd()), Path(__file__).parent.parent]
 
-    # ── 프레임 처리 ──
-    frame = get_video_frame(video_path, frame_number=frame_num)
+    # 원본 영상 탐색
+    raw_path = None
+    for base in search_bases:
+        p = base / raw_rel
+        if p.exists():
+            raw_path = p
+            break
 
-    if frame is not None:
-        h, w = frame.shape[:2]
+    if not raw_path:
+        st.error("영상 파일 없음: " + " / ".join(str(b/raw_rel) for b in search_bases))
+        return
 
-        # 바운딩박스 그리기
-        if data and data.get("objects"):
-            for obj in data["objects"]:
-                frame = draw_bbox(frame, obj, h, w)
-            data["frame_id"] = frame_num
-            frame = draw_hud_overlay(frame, data, h, w)
+    cache_dir = Path(tempfile.gettempdir())
+    annotated_path = cache_dir / f"ida_annotated_{user_id}_{session_id}.mp4"
+    cache_key = f"_annotated_{user_id}_{session_id}"
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    if cache_key not in st.session_state:
+        if annotated_path.exists():
+            try:
+                annotated_path.unlink()
+            except Exception:
+                import time
+                annotated_path = cache_dir / f"ida_annotated_{user_id}_{session_id}_{int(time.time())}.mp4"
 
-        # 경고 배너 (영상 상단에 겹침)
-        if data and data.get("objects"):
-            danger_objs = [o for o in data["objects"]
-                           if get_risk(o["depth_val"], o["obj_speed_px"], o["is_moving"])[0] == "DANGER"]
-            warning_objs = [o for o in data["objects"]
-                            if get_risk(o["depth_val"], o["obj_speed_px"], o["is_moving"])[0] == "WARNING"]
-            if danger_objs:
-                obj_names = ", ".join(set(o["class_name"] for o in danger_objs))
-                st.markdown(f"""
-                <div style="position:relative;z-index:10;margin-bottom:-75px;padding:0.5rem 1rem 0 1rem;">
-                    <div class="alert-banner">
-                        <div class="alert-title" style="font-size:1.1rem;">경고 알림: 추돌 주의!</div>
-                        <div class="alert-sub" style="font-size:0.85rem;">전방 {obj_names} 감지됨!</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            elif warning_objs:
-                obj_names = ", ".join(set(o["class_name"] for o in warning_objs))
-                st.markdown(f"""
-                <div style="position:relative;z-index:10;margin-bottom:-75px;padding:0.5rem 1rem 0 1rem;">
-                    <div class="alert-banner-warning">
-                        <div class="alert-title" style="font-size:1rem;">⚡ 주의: 접근 물체 감지</div>
-                        <div class="alert-sub" style="font-size:0.85rem;">{obj_names} 주의 구간</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+        with st.spinner("📡 DB에서 감지 데이터 불러오는 중..."):
+            data = fetch_logs(session_id)
 
-        # 영상 프레임 (전체 폭 사용)
-        st.image(frame_rgb, use_column_width=True)
+        if data.get("error"):
+            st.error(f"API 오류: {data['error']}")
+            st.stop()
 
-        # 하단 정보 바 (영상 하단에 겹침)
-        can = data["can"] if data and data.get("can") else {"speed_kmh": 0, "acceleration": 0, "brake_intensity": 0}
-        obj_count = len(data["objects"]) if data and data.get("objects") else 0
-        speed_color = "#ef4444" if can["speed_kmh"] > 15 else ("#facc15" if can["speed_kmh"] > 10 else "#22c55e")
+        frames = data.get("frames") or []
+        print(f"[DEBUG] frames={len(frames)}")
 
-        st.markdown(f"""
-        <div style="position:relative;z-index:10;margin-top:-65px;padding:0 1rem 0.5rem 1rem;">
-            <div style="display:flex;justify-content:space-between;align-items:center;
-                        background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);
-                        border-radius:14px;padding:0.5rem 1.5rem;">
-                <div style="display:flex;align-items:baseline;gap:0.4rem;">
-                    <span style="font-family:'Orbitron',sans-serif;font-size:1.8rem;font-weight:900;color:{speed_color};">
-                        {can['speed_kmh']:.0f}
-                    </span>
-                    <span style="font-family:'Orbitron',sans-serif;font-size:0.6rem;color:#6b7b99;">km/h</span>
-                </div>
-                <div style="text-align:center;">
-                    <div style="font-family:'Noto Sans KR',sans-serif;font-size:0.75rem;font-weight:700;color:#38bdf8;letter-spacing:2px;">
-                        주차 감시 모드 활성화
-                    </div>
-                </div>
-                <div style="display:flex;gap:1.2rem;">
-                    <div style="text-align:center;">
-                        <div style="font-family:'Orbitron',sans-serif;font-size:0.55rem;color:#6b7b99;">ACCEL</div>
-                        <div style="font-family:'Orbitron',sans-serif;font-size:0.9rem;font-weight:700;color:#e0e6f0;">
-                            {can['acceleration']:.1f}
-                        </div>
-                    </div>
-                    <div style="text-align:center;">
-                        <div style="font-family:'Orbitron',sans-serif;font-size:0.55rem;color:#6b7b99;">BRAKE</div>
-                        <div style="font-family:'Orbitron',sans-serif;font-size:0.9rem;font-weight:700;color:#e0e6f0;">
-                            {can['brake_intensity']:.1f}
-                        </div>
-                    </div>
-                    <div style="text-align:center;">
-                        <div style="font-family:'Orbitron',sans-serif;font-size:0.55rem;color:#6b7b99;">OBJ</div>
-                        <div style="font-family:'Orbitron',sans-serif;font-size:0.9rem;font-weight:700;color:#a78bfa;">
-                            {obj_count}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        if len(frames) == 0:
+            st.warning("감지 데이터 없음 — 원본 영상으로 재생합니다.")
 
-    else:
-        st.markdown("""
-        <div style="background:#111318;border-radius:12px;height:55vh;
-                    display:flex;align-items:center;justify-content:center;flex-direction:column;">
-            <div style="font-size:2rem;color:#2a2f3a;">⦿</div>
-            <div style="color:#3a4050;font-family:'Noto Sans KR',sans-serif;">영상 파일을 찾을 수 없습니다</div>
-        </div>
-        """, unsafe_allow_html=True)
+        with st.spinner(f"🎬 영상 생성 중... ({len(frames)}프레임)"):
+            annotate_video(raw_path, frames, annotated_path)
+
+        st.session_state[cache_key] = str(annotated_path)
+
+    st.video(st.session_state[cache_key])

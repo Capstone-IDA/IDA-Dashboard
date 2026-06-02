@@ -19,7 +19,7 @@ else:
     st.title("📋 운영 관리")
 
 if is_online():
-    st.caption("🟢 서버 연결됨 — 실데이터 모드")
+    st.caption("🟢 서버 연결됨")
 else:
     st.caption("🟡 오프라인 — 데모 데이터 모드")
 
@@ -83,28 +83,74 @@ if is_admin:
 # ═══════════════════════════════════════
 #  업체: 렌탈 · 차량 · 고객 관리
 # ═══════════════════════════════════════
-if "vehicles" not in st.session_state:
-    st.session_state["vehicles"] = [
+company_id = get_company_id()  # "comp_sky" / "comp_jeju" 등
+
+# 회사별 더미 데이터 정의 (company.py 대시보드와 동기화)
+_DUMMY_VEHICLES = {
+    "comp_sky": [
         {"plate": "12가 3456", "model": "현대 아반떼", "year": 2024, "status": "대여중", "registered": "2025-01-15"},
-        {"plate": "34나 7890", "model": "기아 K5",     "year": 2023, "status": "대기",   "registered": "2025-02-20"},
+        {"plate": "34나 7890", "model": "기아 K5",     "year": 2023, "status": "대여중", "registered": "2025-02-20"},
         {"plate": "56다 1234", "model": "현대 쏘나타", "year": 2024, "status": "대기",   "registered": "2025-03-10"},
         {"plate": "78라 5678", "model": "기아 셀토스", "year": 2025, "status": "정비중", "registered": "2025-04-05"},
         {"plate": "90마 9012", "model": "현대 투싼",   "year": 2023, "status": "대기",   "registered": "2025-05-01"},
-    ]
+    ],
+    "comp_jeju": [
+        {"plate": "11바 1234", "model": "기아 카니발",   "year": 2024, "status": "대여중", "registered": "2025-02-10"},
+        {"plate": "22사 5678", "model": "현대 스타리아", "year": 2023, "status": "대여중", "registered": "2025-03-05"},
+        {"plate": "33아 9012", "model": "기아 쏘렌토",   "year": 2024, "status": "대기",   "registered": "2025-04-20"},
+        {"plate": "44아 3456", "model": "현대 팰리세이드","year": 2025, "status": "대기",   "registered": "2025-05-10"},
+    ],
+}
+_DUMMY_CUSTOMERS = {
+    "comp_sky": [
+        {"name": "김철수", "phone": "010-1234-5678", "license": "경기-12-345678", "blacklist": False, "registered": "2025-01-20", "rentals": 8},
+        {"name": "이영희", "phone": "010-9876-5432", "license": "서울-08-112233", "blacklist": False, "registered": "2025-02-15", "rentals": 5},
+        {"name": "홍길동", "phone": "010-2345-6789", "license": "서울-22-334455", "blacklist": True,  "registered": "2024-11-10", "rentals": 12},
+        {"name": "이민재", "phone": "010-3456-7890", "license": "경기-09-778899", "blacklist": True,  "registered": "2024-12-05", "rentals": 9},
+    ],
+    "comp_jeju": [
+        {"name": "박민수", "phone": "010-5555-1234", "license": "인천-15-667788", "blacklist": False, "registered": "2025-02-20", "rentals": 4},
+        {"name": "최지현", "phone": "010-2233-4455", "license": "경남-03-990011", "blacklist": False, "registered": "2025-03-15", "rentals": 3},
+        {"name": "강동원", "phone": "010-4567-8901", "license": "부산-14-223344", "blacklist": True,  "registered": "2024-10-20", "rentals": 7},
+        {"name": "박서준", "phone": "010-5678-9012", "license": "제주-07-112233", "blacklist": True,  "registered": "2024-11-30", "rentals": 5},
+    ],
+}
+_DUMMY_RENTALS = {
+    "comp_sky": [
+        {"customer": "김철수", "plate": "12가 3456", "start": "2026-06-01", "end": "2026-06-05", "status": "진행중", "session_id": "sess_941291c069fc"},
+        {"customer": "이영희", "plate": "34나 7890", "start": "2026-06-01", "end": "2026-06-04", "status": "진행중", "session_id": "sess_c5adc3d33164"},
+    ],
+    "comp_jeju": [
+        {"customer": "박민수", "plate": "11바 1234", "start": "2026-06-01", "end": "2026-06-06", "status": "진행중", "session_id": "sess_5324ba7103e4"},
+        {"customer": "최지현", "plate": "22사 5678", "start": "2026-06-01", "end": "2026-06-03", "status": "진행중", "session_id": "sess_test_99c74936"},
+    ],
+}
 
-if "customers" not in st.session_state:
-    st.session_state["customers"] = [
-        {"name": "김민수", "phone": "010-1234-5678", "license": "서울 12-345678", "blacklist": False, "registered": "2025-01-20", "rentals": 3},
-        {"name": "김민수", "phone": "010-9999-1111", "license": "경기 99-111111", "blacklist": True,  "registered": "2025-03-15", "rentals": 7},
-        {"name": "이영희", "phone": "010-9876-5432", "license": "경기 34-567890", "blacklist": False, "registered": "2025-02-15", "rentals": 1},
-        {"name": "박준호", "phone": "010-5555-1234", "license": "제주 56-789012", "blacklist": True,  "registered": "2025-03-01", "rentals": 5},
-        {"name": "최수진", "phone": "010-7777-8888", "license": "서울 78-901234", "blacklist": False, "registered": "2025-04-10", "rentals": 2},
-    ]
+# 회사별 session_state 키 사용 (다른 회사 데이터와 혼재 방지)
+_vkey = f"vehicles_{company_id}"
+_ckey = f"customers_{company_id}"
+_rkey = f"rentals_{company_id}"
 
-if "rentals" not in st.session_state:
-    st.session_state["rentals"] = [
-        {"customer": "김민수", "plate": "12가 3456", "start": "2026-05-10", "end": "2026-05-15", "status": "진행중", "session_id": "demo_001"},
-    ]
+# 더미 데이터 버전 관리 (변경 시 캐시 강제 초기화)
+_DATA_VERSION = "v4"
+if st.session_state.get("_data_version") != _DATA_VERSION:
+    for k in [_vkey, _ckey, _rkey, "vehicles", "customers", "rentals"]:
+        st.session_state.pop(k, None)
+    st.session_state["_data_version"] = _DATA_VERSION
+
+if _vkey not in st.session_state:
+    st.session_state[_vkey] = _DUMMY_VEHICLES.get(company_id, _DUMMY_VEHICLES["comp_sky"])
+if _ckey not in st.session_state:
+    st.session_state[_ckey] = _DUMMY_CUSTOMERS.get(company_id, _DUMMY_CUSTOMERS["comp_sky"])
+if _rkey not in st.session_state:
+    st.session_state[_rkey] = _DUMMY_RENTALS.get(company_id, _DUMMY_RENTALS["comp_sky"])
+
+# 이후 코드에서 공통으로 쓸 수 있게 alias
+if "vehicles" not in st.session_state or st.session_state.get("_last_company") != company_id:
+    st.session_state["vehicles"] = st.session_state[_vkey]
+    st.session_state["customers"] = st.session_state[_ckey]
+    st.session_state["rentals"] = st.session_state[_rkey]
+    st.session_state["_last_company"] = company_id
 
 tab_rental, tab_vehicle, tab_customer = st.tabs(["📋 렌탈 관리", "🚗 차량 관리", "👤 고객 관리"])
 
@@ -136,11 +182,44 @@ with tab_rental:
         st.info("렌탈 내역이 없습니다.")
 
     st.divider()
+    active = [r for r in st.session_state["rentals"] if r.get("status") == "진행중"]
+    if active:
+        st.subheader("🔄 렌탈 반납 처리")
+        return_options = [f"{r['customer']} → {r['plate']} ({r['start']} ~ {r['end']})" for r in active]
+        selected_return = st.selectbox("반납할 렌탈 선택", return_options)
+
+        if st.button("반납 처리", type="primary"):
+            idx = return_options.index(selected_return)
+            target = active[idx]
+            session_id = target.get("session_id", "")
+
+            result = api_post("/session/end", {"session_id": session_id})
+            if result:
+                st.success(f"✅ 세션 {session_id} 반납 완료!")
+            else:
+                for r in st.session_state["rentals"]:
+                    if r.get("session_id") == session_id:
+                        r["status"] = "완료"
+                        break
+                st.success(f"✅ 반납 완료!")
+
+            for v in st.session_state["vehicles"]:
+                if v["plate"] == target["plate"]:
+                    v["status"] = "대기"
+                    break
+            st.rerun()
+
+    st.divider()
     st.subheader("➕ 신규 렌탈 등록")
 
-    vehicles = st.session_state["vehicles"]
-    customers = st.session_state["customers"]
-    available_vehicles = [v for v in vehicles if v.get("status") == "대기"]
+    # 렌탈 등록용 차량/고객 목록도 API에서 가져오기
+    vehicles_api = api_get("/company/vehicles")
+    customers_api = api_get("/company/customers")
+    
+    vehicles = vehicles_api if (vehicles_api and isinstance(vehicles_api, list)) else st.session_state["vehicles"]
+    customers = customers_api if (customers_api and isinstance(customers_api, list)) else st.session_state["customers"]
+    
+    available_vehicles = [v for v in vehicles if v.get("status", "대기") == "대기"]
     valid_customers = [c for c in customers if not c.get("blacklist", False)]
 
     if not available_vehicles:
@@ -150,9 +229,16 @@ with tab_rental:
     else:
         with st.form("add_rental", clear_on_submit=True):
             fr1, fr2 = st.columns(2)
-            customer_options = [f"{c['name']} ({c['phone']})" for c in valid_customers]
+            customer_options = [
+                f"{c.get('name', 'N/A')} ({c.get('phone', 'N/A')})" 
+                for c in valid_customers
+            ]
             selected_customer = fr1.selectbox("고객 선택", customer_options)
-            vehicle_options = [f"{v['plate']} — {v['model']}" for v in available_vehicles]
+            
+            vehicle_options = [
+                f"{v.get('plate_number') or v.get('plate', 'N/A')} — {v.get('model', 'N/A')}" 
+                for v in available_vehicles
+            ]
             selected_vehicle = fr2.selectbox("차량 선택", vehicle_options)
 
             fd1, fd2 = st.columns(2)
@@ -191,44 +277,21 @@ with tab_rental:
                             break
                     st.rerun()
 
-    st.divider()
-    active = [r for r in st.session_state["rentals"] if r.get("status") == "진행중"]
-    if active:
-        st.subheader("🔄 렌탈 반납 처리")
-        return_options = [f"{r['customer']} → {r['plate']} ({r['start']} ~ {r['end']})" for r in active]
-        selected_return = st.selectbox("반납할 렌탈 선택", return_options)
-
-        if st.button("반납 처리", type="primary"):
-            idx = return_options.index(selected_return)
-            target = active[idx]
-            session_id = target.get("session_id", "")
-
-            result = api_post("/session/end", {"session_id": session_id})
-            if result:
-                st.success(f"✅ 세션 {session_id} 반납 완료!")
-            else:
-                for r in st.session_state["rentals"]:
-                    if r.get("session_id") == session_id:
-                        r["status"] = "완료"
-                        break
-                st.success(f"✅ 반납 완료!")
-
-            for v in st.session_state["vehicles"]:
-                if v["plate"] == target["plate"]:
-                    v["status"] = "대기"
-                    break
-            st.rerun()
-
 # ───────────────────────────────────────
 #  차량 관리
 # ───────────────────────────────────────
 with tab_vehicle:
     st.subheader("등록 차량 목록")
 
-    vehicles = st.session_state["vehicles"]
-    v_available = sum(1 for v in vehicles if v.get("status") == "대기")
-    v_rented    = sum(1 for v in vehicles if v.get("status") == "대여중")
-    v_maint     = sum(1 for v in vehicles if v.get("status") == "정비중")
+    # API에서 차량 목록 가져오기 (우선) → 실패하면 세션 폴백
+    vehicles_api = api_get("/company/vehicles")
+    if vehicles_api and isinstance(vehicles_api, list):
+        vehicles = vehicles_api
+    else:
+        vehicles = st.session_state["vehicles"]
+    v_available = sum(1 for v in vehicles if v.get("status", "대기") == "대기")
+    v_rented    = sum(1 for v in vehicles if v.get("status", "대기") == "대여중")
+    v_maint     = sum(1 for v in vehicles if v.get("status", "대기") == "정비중")
 
     vc1, vc2, vc3, vc4 = st.columns(4)
     vc1.metric("전체 차량", f"{len(vehicles)}대")
@@ -239,8 +302,18 @@ with tab_vehicle:
     st.divider()
 
     if vehicles:
-        df_v = pd.DataFrame(vehicles)
-        df_v.columns = ["차량번호", "모델", "연식", "상태", "등록일"]
+        # API 응답과 세션스테이트 구조 통합
+        display_vehicles = []
+        for v in vehicles:
+            display_vehicles.append({
+                "차량번호": v.get("plate_number") or v.get("plate", "N/A"),
+                "모델": v.get("model", "N/A"),
+                "연식": v.get("year", "N/A"),
+                "상태": v.get("status", "대기"),  # API엔 없을 수 있음
+                "등록일": v.get("registered", v.get("created_at", "N/A"))
+            })
+        
+        df_v = pd.DataFrame(display_vehicles)
 
         def status_style(val):
             if val == "대여중":
@@ -266,7 +339,9 @@ with tab_vehicle:
         if submitted_v:
             if new_plate and new_model:
                 result = api_post("/company/vehicles", {
-                    "plate": new_plate, "model": new_model, "year": new_year
+                    "plate_number": new_plate, 
+                    "model": new_model,
+                    "year": str(new_year)  # 백엔드 스키마 타입(str)에 맞춰 변환
                 })
                 if result:
                     plate_num = result.get("plate_number", new_plate)
@@ -289,7 +364,12 @@ with tab_vehicle:
 with tab_customer:
     st.subheader("등록 고객 목록")
 
-    customers = st.session_state["customers"]
+    # API에서 고객 목록 가져오기 (우선) → 실패하면 세션 폴백
+    customers_api = api_get("/company/customers")
+    if customers_api and isinstance(customers_api, list):
+        customers = customers_api
+    else:
+        customers = st.session_state["customers"]
     c_total     = len(customers)
     c_blacklist = sum(1 for c in customers if c.get("blacklist", False))
 
@@ -310,9 +390,19 @@ with tab_customer:
                     or search_query in c.get("license", "")]
 
     if filtered:
-        df_c = pd.DataFrame(filtered)
-        df_c["blacklist"] = df_c["blacklist"].map({True: "🚫 블랙", False: "✅ 정상"})
-        df_c.columns = ["이름", "연락처", "면허번호", "블랙리스트", "등록일", "대여횟수"]
+        # API 응답과 세션스테이트 구조 통합
+        display_customers = []
+        for c in filtered:
+            display_customers.append({
+                "이름": c.get("name", "N/A"),
+                "연락처": c.get("phone", "N/A"),
+                "면허번호": c.get("license") or c.get("user_id", "N/A"),  # API는 user_id 사용
+                "블랙리스트": "🚫 블랙" if c.get("blacklist", False) else "✅ 정상",
+                "등록일": c.get("registered") or c.get("created_at", "N/A"),
+                "대여횟수": c.get("rentals", 0)
+            })
+        
+        df_c = pd.DataFrame(display_customers)
 
         def bl_style(val):
             if val == "🚫 블랙":

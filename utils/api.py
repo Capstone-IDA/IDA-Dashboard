@@ -3,6 +3,7 @@ import streamlit as st
 
 # BASE_URL
 BASE_URL = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
+#BASE_URL = "http://localhost:8000"
 
 def _headers():
     """인증 헤더 생성"""

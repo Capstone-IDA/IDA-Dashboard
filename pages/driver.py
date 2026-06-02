@@ -1,8 +1,114 @@
 import streamlit as st
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
+import random
+from utils.api import api_get
 
 st.set_page_config(page_title="IDA - Vehicle Dashboard", layout="wide")
+
+
+# ── 더미 Detection 데이터 생성 함수 ──
+def generate_mock_detections(session_id, total_frames, duration_sec):
+    """영상별 더미 detection 데이터 생성 (현실적인 시나리오)"""
+    detections = []
+    start_time = datetime(2026, 6, 1, 14, 23, 15)
+    
+    for frame_id in range(1, total_frames + 1):
+        # 타임스탬프 계산
+        timestamp = start_time + timedelta(seconds=frame_id / 30)
+        
+        # 프레임 위치 비율 (0.0 ~ 1.0)
+        progress = frame_id / total_frames
+        
+        # 시나리오별 위험도 패턴
+        if progress < 0.3:  # 초반 30%: SAFE
+            risk_factor = 0.1
+            speed = random.uniform(10, 15)
+        elif progress < 0.6:  # 중반 30%: WARNING
+            risk_factor = 0.4
+            speed = random.uniform(15, 25)
+        elif progress < 0.8:  # 후반 20%: WARNING → DANGER 전환
+            risk_factor = 0.6
+            speed = random.uniform(20, 30)
+        else:  # 마지막 20%: DANGER
+            risk_factor = 0.8
+            speed = random.uniform(25, 35)
+        
+        # 객체 생성
+        objects = []
+        
+        # 차량 (항상 존재)
+        vehicle_depth = max(0.15, 0.8 - (progress * risk_factor))
+        objects.append({
+            "class_id": 0,
+            "class_name": "차량",
+            "confidence": random.uniform(0.90, 0.98),
+            "bbox": {
+                "x": random.uniform(0.1, 0.3),
+                "y": random.uniform(0.25, 0.35),
+                "w": random.uniform(0.25, 0.35),
+                "h": random.uniform(0.35, 0.45)
+            },
+            "track_id": 5,
+            "depth_val": vehicle_depth,
+            "obj_speed_px": random.uniform(1.5, 3.5) if risk_factor > 0.5 else random.uniform(0.5, 1.5),
+            "is_moving": True
+        })
+        
+        # 보행자 (중반부터 등장)
+        if progress > 0.3:
+            pedestrian_depth = max(0.2, 0.7 - (progress * risk_factor * 0.8))
+            objects.append({
+                "class_id": 1,
+                "class_name": "보행자",
+                "confidence": random.uniform(0.65, 0.85),
+                "bbox": {
+                    "x": random.uniform(0.5, 0.7),
+                    "y": random.uniform(0.2, 0.3),
+                    "w": random.uniform(0.08, 0.15),
+                    "h": random.uniform(0.35, 0.45)
+                },
+                "track_id": 12,
+                "depth_val": pedestrian_depth,
+                "obj_speed_px": random.uniform(0.8, 1.8) if risk_factor > 0.6 else random.uniform(0.3, 0.9),
+                "is_moving": True
+            })
+        
+        # 기둥/벽 (항상 존재)
+        objects.append({
+            "class_id": 2,
+            "class_name": "기둥",
+            "confidence": random.uniform(0.88, 0.95),
+            "bbox": {
+                "x": random.uniform(0.82, 0.88),
+                "y": random.uniform(0.12, 0.18),
+                "w": random.uniform(0.05, 0.08),
+                "h": random.uniform(0.55, 0.65)
+            },
+            "track_id": 3,
+            "depth_val": random.uniform(0.65, 0.85),
+            "obj_speed_px": 0.0,
+            "is_moving": False
+        })
+        
+        detections.append({
+            "session_id": session_id,
+            "frame_id": frame_id,
+            "timestamp": timestamp.isoformat(),
+            "system": {
+                "fps": random.uniform(28, 32),
+                "inference_time_ms": random.uniform(30, 40)
+            },
+            "can": {
+                "speed_kmh": speed,
+                "acceleration": random.uniform(-0.5, 1.5) if risk_factor > 0.5 else random.uniform(0, 0.8),
+                "brake_intensity": random.uniform(0.3, 0.7) if risk_factor > 0.7 else 0.0,
+                "scenario": "normal"
+            },
+            "objects": objects
+        })
+    
+    return detections
 
 # ── 차량 HUD 스타일 ──
 st.markdown("""
@@ -71,41 +177,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-
-# ── 더미 /detect 응답 (건중이 JSON 스키마 기반) ──
-DUMMY_DETECT = {
-    "session_id": "a1b2c3d4-5678-9abc-def0-123456789abc",
-    "frame_id": 847,
-    "timestamp": datetime.now().isoformat(),
-    "system": {"fps": 28.4, "inference_time_ms": 35.2},
-    "can": {
-        "speed_kmh": 12.5,
-        "acceleration": 0.8,
-        "brake_intensity": 0.0,
-        "scenario": "normal"
-    },
-    "objects": [
-        {
-            "class_id": 0, "class_name": "차량", "confidence": 0.95,
-            "bbox": {"x": 0.12, "y": 0.28, "w": 0.28, "h": 0.42},
-            "track_id": 5, "depth_val": 0.18,
-            "obj_speed_px": 2.4, "is_moving": True
-        },
-        {
-            "class_id": 1, "class_name": "보행자", "confidence": 0.70,
-            "bbox": {"x": 0.62, "y": 0.22, "w": 0.12, "h": 0.40},
-            "track_id": 12, "depth_val": 0.45,
-            "obj_speed_px": 1.1, "is_moving": True
-        },
-        {
-            "class_id": 2, "class_name": "기둥", "confidence": 0.92,
-            "bbox": {"x": 0.85, "y": 0.15, "w": 0.06, "h": 0.60},
-            "track_id": 3, "depth_val": 0.72,
-            "obj_speed_px": 0.0, "is_moving": False
-        },
-    ]
-}
 
 
 def get_risk(depth_val, obj_speed_px, is_moving):
@@ -226,7 +297,73 @@ def draw_vehicle_view(data):
 #  화면 구성
 # ═══════════════════════════════
 
-data = DUMMY_DETECT
+# 세션별 영상 매핑 (FE에 저장된 테스트 영상)
+VIDEO_MAP = {
+    "session_001": {
+        "video": "videos/test_scenario_1.mp4",
+        "name": "시나리오 1 (60초)",
+        "duration": 60,
+        "frames": 1800
+    },
+    "session_002": {
+        "video": "videos/test_scenario_2.mp4",
+        "name": "시나리오 2 (34초)",
+        "duration": 34,
+        "frames": 1020
+    },
+    "session_003": {
+        "video": "videos/test_scenario_3.mp4",
+        "name": "시나리오 3 (52초)",
+        "duration": 52,
+        "frames": 1560
+    },
+}
+
+# 사이드바: 세션 선택
+st.sidebar.markdown("### 🎬 시나리오 선택")
+selected_session = st.sidebar.selectbox(
+    "테스트 시나리오",
+    options=list(VIDEO_MAP.keys()),
+    format_func=lambda x: f"{VIDEO_MAP[x]['name']}"
+)
+
+video_info = VIDEO_MAP[selected_session]
+st.sidebar.caption(f"📹 {video_info['duration']}초 / {video_info['frames']} 프레임")
+
+# Detection 결과 가져오기 (API 우선 → 더미 폴백)
+cache_key = f'detection_cache_{selected_session}'
+
+if cache_key not in st.session_state:
+    # API 시도
+    detect_results = api_get(f"/detect?session_id={selected_session}")
+    
+    if detect_results and isinstance(detect_results, list):
+        st.session_state[cache_key] = detect_results
+        st.sidebar.success("🟢 API 데이터 로드 완료")
+    else:
+        # 더미 데이터 생성
+        st.session_state[cache_key] = generate_mock_detections(
+            selected_session,
+            video_info['frames'],
+            video_info['duration']
+        )
+        st.sidebar.warning("🟡 오프라인 - 더미 데이터")
+
+cached_results = st.session_state[cache_key]
+
+# 프레임 선택 (실제 영상 플레이어와 동기화 예정)
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎮 프레임 탐색 (테스트용)")
+current_frame_id = st.sidebar.slider(
+    "프레임",
+    min_value=1,
+    max_value=video_info['frames'],
+    value=1,
+    help="실제 데모에서는 영상 재생과 자동 동기화됩니다"
+)
+
+# 현재 프레임 데이터
+data = cached_results[current_frame_id - 1]
 
 # 상단 타이틀
 st.markdown('<div class="hud-title">VEHICLE DASHBOARD</div>', unsafe_allow_html=True)
@@ -237,7 +374,7 @@ danger_objs = [o for o in data["objects"]
 warning_objs = [o for o in data["objects"]
                 if get_risk(o["depth_val"], o["obj_speed_px"], o["is_moving"])[0] == "WARNING"]
 
-_, col_alert, _ = st.columns([1, 2, 1])
+_, col_alert, _ = st.columns([1.5, 1, 1.5])
 with col_alert:
     if danger_objs:
         obj_names = ", ".join(set(o["class_name"] for o in danger_objs))

@@ -19,9 +19,10 @@ render_sidebar()
 # ═══════════════════════════════════════
 
 # 더미 데이터
+# 더미 기본값 (API 폴백용) - 실제 시나리오 기반
 DUMMY_COMPANY_DATA = {
-    "스카이렌터카": {"sessions": 5,  "events": 18, "avg_score": 68, "blacklist": 1},
-    "제주렌터카":   {"sessions": 4,  "events": 21, "avg_score": 74, "blacklist": 2},
+    "스카이렌터카": {"sessions": 2, "events": 10, "avg_score": 75, "blacklist": 2},
+    "제주렌터카":   {"sessions": 2, "events": 12, "avg_score": 71, "blacklist": 2},
 }
 
 DUMMY_SCORING = {
@@ -54,22 +55,31 @@ api_stats = api_get("/stats")
 api_logs_data = api_get("/logs")
 api_companies = api_get("/auth/companies")
 
-# 업체 목록 결정
-if api_companies and isinstance(api_companies, list) and len(api_companies) > 0:
-    company_names = [c.get("company_name", c.get("company_id", "")) for c in api_companies]
-    company_data = {}
+# 업체 목록 결정 (API + 더미 병합)
+company_data = dict(DUMMY_COMPANY_DATA)  # 더미로 초기화
+
+if api_admin_dashboard and isinstance(api_admin_dashboard, dict):
+    # API에서 업체별 실제 데이터 가져와서 병합
+    api_company_list = api_admin_dashboard.get("companies", [])
+    COMP_NAME_MAP = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
+    for c in api_company_list:
+        name = c.get("company_name") or COMP_NAME_MAP.get(c.get("company_id", ""), "")
+        if name and name in company_data:
+            api_sessions = c.get("active_sessions", c.get("sessions", 0))
+            api_events   = c.get("total_events", c.get("events", 0))
+            api_score    = c.get("avg_score", c.get("avg_final_score", 0))
+            api_bl       = c.get("blacklist_count", c.get("blacklist", 0))
+            # 실제값이 있으면 병합, 없으면 더미 유지
+            if api_sessions: company_data[name]["sessions"] = api_sessions
+            if api_events:   company_data[name]["events"]   = api_events
+            if api_score:    company_data[name]["avg_score"] = round(api_score)
+            if api_bl:       company_data[name]["blacklist"] = api_bl
+
+if api_companies and isinstance(api_companies, list):
     for c in api_companies:
         name = c.get("company_name", "")
-        company_data[name] = {
-            "sessions": c.get("sessions", 0),
-            "events": c.get("events", 0),
-            "avg_score": c.get("avg_score", 0),
-            "blacklist": c.get("blacklist", 0),
-        }
-    if not company_data:
-        company_data = DUMMY_COMPANY_DATA
-else:
-    company_data = DUMMY_COMPANY_DATA
+        if name and name not in company_data:
+            company_data[name] = {"sessions": 0, "events": 0, "avg_score": 0, "blacklist": 0}
 
 # 스코어링 설정
 if api_config and isinstance(api_config, dict):
@@ -135,14 +145,14 @@ else:
     total_sessions  = sum(v["sessions"]  for v in company_data.values())
     total_events    = sum(v["events"]    for v in company_data.values())
     avg_score_total = round(sum(v["avg_score"] for v in company_data.values()) / max(len(company_data), 1))
-    total_blacklist = sum(v["blacklist"] for v in company_data.values())
+    total_blacklist = 4  # 홍길동, 이민재, 강동원, 박서준
 
-st.markdown("**전체 현황**")
-tc1, tc2, tc3, tc4 = st.columns(4)
-tc1.metric("전체 활성 세션",   f"{total_sessions}건")
-tc2.metric("전체 위험 이벤트", f"{total_events}건")
-tc3.metric("전체 평균 점수",   f"{avg_score_total}점")
-tc4.metric("전체 블랙리스트",  f"{total_blacklist}명")
+#st.markdown("**전체 현황**")
+#tc1, tc2, tc3, tc4 = st.columns(4)
+#tc1.metric("전체 활성 세션",   f"{total_sessions}건")
+#tc2.metric("전체 위험 이벤트", f"{total_events}건")
+#tc3.metric("전체 평균 점수",   f"{avg_score_total}점")
+#tc4.metric("전체 블랙리스트",  f"{total_blacklist}명")
 
 st.markdown(f"**{selected} 현황**")
 col1, col2, col3, col4 = st.columns(4)

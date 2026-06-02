@@ -35,6 +35,6 @@ def render_sidebar():
         for _ in range(8):
             st.write("")
         st.divider()
-        if st.button("로그아웃", use_container_width=True):
+        if st.button("로그아웃", use_container_width=True, key="sidebar_logout_btn"):
             logout()
             st.rerun()
