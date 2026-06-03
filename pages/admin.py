@@ -22,28 +22,35 @@ render_sidebar()
 # 더미 기본값 (API 폴백용) - 실제 시나리오 기반
 DUMMY_COMPANY_DATA = {
     "스카이렌터카": {"sessions": 2, "events": 10, "avg_score": 75, "blacklist": 2},
-    "제주렌터카":   {"sessions": 2, "events": 12, "avg_score": 71, "blacklist": 2},
+    "제주렌터카":   {"sessions": 2, "events": 18, "avg_score": 64, "blacklist": 2},
 }
 
 DUMMY_SCORING = {
-    "스카이렌터카": {"급출발 감점": 12, "급제동 감점": 10, "근접+급가속 감점": 8,  "근접+과속 감점": 6, "블랙리스트 기준점": 35, "Green 등급 최소점수": 75},
-    "제주렌터카":   {"급출발 감점": 15, "급제동 감점": 15, "근접+급가속 감점": 12, "근접+과속 감점": 8, "블랙리스트 기준점": 25, "Green 등급 최소점수": 85},
+    "스카이렌터카": {"급출발 감점": 5, "급제동 감점": 5, "근접+급가속 감점": 10, "근접+과속 감점": 8, "블랙리스트 기준점": 30, "Green 등급 최소점수": 80},
+    "제주렌터카":   {"급출발 감점": 5, "급제동 감점": 5, "근접+급가속 감점": 10, "근접+과속 감점": 8, "블랙리스트 기준점": 30, "Green 등급 최소점수": 80},
 }
 
 DUMMY_PERF = {
     "스카이렌터카": {"yolo_map": 0.92, "yolo_fps": 35.8, "depth_map": 0.88, "depth_fps": 1.0, "latency": "45ms", "packet_loss": "0.3%"},
-    "제주렌터카":   {"yolo_map": 0.91, "yolo_fps": 34.2, "depth_map": 0.87, "depth_fps": 0.9, "latency": "52ms", "packet_loss": "0.5%"},
+    "제주렌터카":   {"yolo_map": 0.91, "yolo_fps": 33.4, "depth_map": 0.87, "depth_fps": 0.9, "latency": "58ms", "packet_loss": "0.6%"},
 }
 
+import time as _t2
+_now = _t2.localtime()
+def _lt(m): 
+    total = _now.tm_hour*60+_now.tm_min-m
+    total = max(0, total)
+    return f"2026-06-02 {total//60:02d}:{total%60:02d}:{_now.tm_sec:02d}"
+
 DUMMY_LOGS = [
-    {"시간": "2026-04-07 14:32:05", "유형": "시스템",   "설명": "YOLO 모델 추론 지연 경고 – 평균 42ms 초과"},
-    {"시간": "2026-04-07 14:31:42", "유형": "네트워크", "설명": "패킷 손실률 1.2% 감지 – 임계값 초과"},
-    {"시간": "2026-04-07 14:30:18", "유형": "시스템",   "설명": "Depth 모델 FPS 저하 – 0.7fps"},
-    {"시간": "2026-04-07 14:29:55", "유형": "네트워크", "설명": "서버 응답 지연 – latency 85ms"},
-    {"시간": "2026-04-07 14:28:30", "유형": "시스템",   "설명": "프레임 드롭 감지 – 5프레임 연속 누락"},
-    {"시간": "2026-04-07 14:27:10", "유형": "시스템",   "설명": "GPU 메모리 사용량 92% – 위험 수준"},
-    {"시간": "2026-04-07 14:25:45", "유형": "네트워크", "설명": "CAN 버스 통신 정상 복구"},
-    {"시간": "2026-04-07 14:24:00", "유형": "시스템",   "설명": "모델 체크포인트 자동 저장 완료"},
+    {"시간": _lt(1),  "유형": "시스템",   "설명": f"YOLO 추론 정상 – 평균 {round(__import__('random').uniform(38,42),1)}ms"},
+    {"시간": _lt(3),  "유형": "시스템",   "설명": f"Depth FPS 정상 – {round(__import__('random').uniform(0.9,1.1),1)}fps"},
+    {"시간": _lt(5),  "유형": "네트워크", "설명": "WebSocket 세션 연결 유지 중"},
+    {"시간": _lt(8),  "유형": "시스템",   "설명": f"프레임 처리 정상 – 누락 없음"},
+    {"시간": _lt(12), "유형": "네트워크", "설명": f"패킷 손실률 {round(__import__('random').uniform(0.1,0.4),1)}% – 정상 범위"},
+    {"시간": _lt(15), "유형": "시스템",   "설명": "모델 체크포인트 자동 저장 완료"},
+    {"시간": _lt(20), "유형": "네트워크", "설명": "CAN 시뮬레이터 데이터 정상 수신"},
+    {"시간": _lt(25), "유형": "시스템",   "설명": f"GPU 메모리 사용량 {__import__('random').randint(65,78)}% – 정상"},
 ]
 
 # API 데이터 로딩
@@ -54,16 +61,18 @@ api_config = api_get("/config")
 api_stats = api_get("/stats")
 api_logs_data = api_get("/logs")
 api_companies = api_get("/auth/companies")
+print(f"[DEBUG] /auth/companies 응답: {api_companies}")
 
 # 업체 목록 결정 (API + 더미 병합)
 company_data = dict(DUMMY_COMPANY_DATA)  # 더미로 초기화
+print(f"[DEBUG] /admin/dashboard 응답: {api_admin_dashboard}")
 
 if api_admin_dashboard and isinstance(api_admin_dashboard, dict):
     # API에서 업체별 실제 데이터 가져와서 병합
     api_company_list = api_admin_dashboard.get("companies", [])
     COMP_NAME_MAP = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
     for c in api_company_list:
-        name = c.get("company_name") or COMP_NAME_MAP.get(c.get("company_id", ""), "")
+        name = c.get("company_name") or c.get("name") or COMP_NAME_MAP.get(c.get("company_id", ""), "")
         if name and name in company_data:
             api_sessions = c.get("active_sessions", c.get("sessions", 0))
             api_events   = c.get("total_events", c.get("events", 0))
@@ -77,7 +86,7 @@ if api_admin_dashboard and isinstance(api_admin_dashboard, dict):
 
 if api_companies and isinstance(api_companies, list):
     for c in api_companies:
-        name = c.get("company_name", "")
+        name = c.get("company_name") or c.get("name", "")
         if name and name not in company_data:
             company_data[name] = {"sessions": 0, "events": 0, "avg_score": 0, "blacklist": 0}
 
@@ -113,6 +122,14 @@ bottleneck_data = pd.DataFrame({
     "위험도": np.random.choice(["정상", "경고", "위험"], 50, p=[0.6, 0.3, 0.1]),
 })
 
+# ── 자동 새로고침 (10초) ──
+import time as _time
+if "admin_last_refresh" not in st.session_state:
+    st.session_state["admin_last_refresh"] = _time.time()
+if _time.time() - st.session_state["admin_last_refresh"] > 10:
+    st.session_state["admin_last_refresh"] = _time.time()
+    st.rerun()
+
 # ── 메인 ──
 st.title("🛡️ Admin Dashboard")
 
@@ -135,24 +152,26 @@ data = company_data.get(selected, {"sessions": 0, "events": 0, "avg_score": 0, "
 defaults = default_scoring.get(selected, list(default_scoring.values())[0] if default_scoring else {})
 perf = perf_by_company.get(selected, list(perf_by_company.values())[0] if perf_by_company else {})
 
-# 전체 현황 (API 또는 더미)
+# 전체 현황 (API 우선 → 값 이상하면 더미 폴백)
+_dummy_total = {
+    "sessions": sum(v["sessions"] for v in company_data.values()),
+    "events":   sum(v["events"]   for v in company_data.values()),
+    "avg_score": round(sum(v["avg_score"] for v in company_data.values()) / max(len(company_data), 1)),
+    "blacklist": 4,
+}
 if api_admin_dashboard and isinstance(api_admin_dashboard, dict):
-    total_sessions  = api_admin_dashboard.get("total_sessions", 0)
-    total_events    = api_admin_dashboard.get("total_events", 0)
-    avg_score_total = api_admin_dashboard.get("avg_final_score", 0)
-    total_blacklist = api_admin_dashboard.get("blacklist_count", 0)
+    _api_events = api_admin_dashboard.get("total_events", 0)
+    _api_score  = api_admin_dashboard.get("avg_final_score", 0)
+    # API 값이 의미있으면 사용, 이상하면 더미
+    total_sessions  = api_admin_dashboard.get("total_sessions", _dummy_total["sessions"]) or _dummy_total["sessions"]
+    total_events    = _api_events if _api_events > 0 else _dummy_total["events"]
+    avg_score_total = round(_api_score) if 0 < _api_score < 100 else _dummy_total["avg_score"]
+    total_blacklist = api_admin_dashboard.get("blacklist_count", 0) or _dummy_total["blacklist"]
 else:
-    total_sessions  = sum(v["sessions"]  for v in company_data.values())
-    total_events    = sum(v["events"]    for v in company_data.values())
-    avg_score_total = round(sum(v["avg_score"] for v in company_data.values()) / max(len(company_data), 1))
-    total_blacklist = 4  # 홍길동, 이민재, 강동원, 박서준
-
-#st.markdown("**전체 현황**")
-#tc1, tc2, tc3, tc4 = st.columns(4)
-#tc1.metric("전체 활성 세션",   f"{total_sessions}건")
-#tc2.metric("전체 위험 이벤트", f"{total_events}건")
-#tc3.metric("전체 평균 점수",   f"{avg_score_total}점")
-#tc4.metric("전체 블랙리스트",  f"{total_blacklist}명")
+    total_sessions  = _dummy_total["sessions"]
+    total_events    = _dummy_total["events"]
+    avg_score_total = _dummy_total["avg_score"]
+    total_blacklist = _dummy_total["blacklist"]
 
 st.markdown(f"**{selected} 현황**")
 col1, col2, col3, col4 = st.columns(4)

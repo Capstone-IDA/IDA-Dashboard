@@ -9,10 +9,10 @@ from PIL import ImageFont, ImageDraw, Image
 API_BASE = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
 
 DRIVER_MAP = {
-    "driver1": ("videos/test_scenario_1.mp4", "sess_scenario_1_ecae33"),
-    "driver2": ("videos/test_scenario_2.mp4", "sess_scenario_2_8eebf6"),
-    "driver3": ("videos/test_scenario_3.mp4", "sess_scenario_3_70fae7"),
-    "driver4": ("videos/test_scenario_4.mp4", "sess_test_99c74936"),
+    "driver1": ("videos/test_scenario_1.mp4", "sess_scenario_1_0602_131649"),
+    "driver2": ("videos/test_scenario_2.mp4", "sess_scenario_2_0602_131649"),
+    "driver3": ("videos/test_scenario_3.mp4", "sess_scenario_3_0602_131649"),
+    "driver4": ("videos/test_scenario_4.mp4", "sess_scenario_4_0602_131649"),
 }
 
 # ── 한글 폰트 로드 (없으면 None → OpenCV 기본) ──
@@ -84,14 +84,11 @@ def fetch_logs(session_id: str, limit: int = 1000) -> dict:
     except Exception as e:
         return {"total_count": 0, "frames": [], "error": str(e)}
 
-DYNAMIC_CLASSES = {"Vehicle", "Human", "Two-wheeled Vehicle", "Wheelchair", "Stroller", "Shopping Cart", "Animal"}
-
 def build_frame_map(frames: list) -> dict:
-    """frame_number → 해당 프레임 최고 위험도 (동적 객체만)"""
+    """frame_number → 해당 프레임 최고 위험도 (전체 객체 기준)"""
     fm = {}
     for f in frames:
-        risks = [obj["risk_level"] for obj in f.get("objects", [])
-                 if obj.get("class_name") in DYNAMIC_CLASSES]
+        risks = [obj["risk_level"] for obj in f.get("objects", [])]
         if "danger" in risks:
             fm[f["frame_number"]] = "danger"
         elif "warning" in risks:

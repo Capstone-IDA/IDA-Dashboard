@@ -2,7 +2,6 @@ streamlit
 pandas
 plotly
 numpy
-opencv-python
+opencv-python-headless
 requests
 Pillow
-python-headless

@@ -25,7 +25,6 @@ def render_sidebar():
 
         if role == "admin":
             st.page_link("pages/admin.py",   label="Admin Dashboard", icon="🛡️")
-            st.page_link("pages/company.py", label="Company Dashboard", icon="🏢")
             st.page_link("pages/manage.py",  label="업체 관리",          icon="📋")
         else:
             st.page_link("pages/company.py", label="Company Dashboard", icon="🏢")

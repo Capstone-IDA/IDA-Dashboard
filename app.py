@@ -113,13 +113,13 @@ if role == "admin":
         _api_events    = admin_data.get("total_events", 0)
         _api_score     = admin_data.get("avg_final_score", 0)
         _api_blacklist = admin_data.get("blacklist_count", 0)
-        _api_companies = admin_data.get("company_count", 0)
-        # 값이 비정상이면(0이거나 100점이면) 더미 사용
+        _api_companies = admin_data.get("company_count", 0) or len(admin_data.get("companies", [])) or 2
+        print(f"[DEBUG] admin_data: sessions={_api_sessions}, events={_api_events}, score={_api_score}, bl={_api_blacklist}")
         total_sessions  = _api_sessions  if _api_sessions  > 0 else 4
         total_events    = _api_events    if _api_events    > 0 else 22
-        avg_score_total = round(_api_score) if 0 < _api_score < 99 else 73
+        avg_score_total = round(_api_score) if _api_score  > 0 else 73
         total_blacklist = _api_blacklist if _api_blacklist > 0 else 4
-        company_count   = _api_companies if _api_companies > 0 else 2
+        company_count   = _api_companies
     else:
         total_sessions  = 4
         total_events    = 22
@@ -147,7 +147,7 @@ if role == "admin":
     if companies_data and isinstance(companies_data, list):
         CMAP = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
         for c in companies_data:
-            name = c.get("company_name") or CMAP.get(c.get("company_id",""), "")
+            name = c.get("company_name") or c.get("name") or CMAP.get(c.get("company_id",""), "")
             if name and name in company_chart_data:
                 if c.get("active_sessions"): company_chart_data[name]["sessions"] = c["active_sessions"]
                 if c.get("total_events"):    company_chart_data[name]["events"]   = c["total_events"]
@@ -199,31 +199,19 @@ else:
     st.title(f"🏢 {company_name} 홈")
     st.divider()
 
-    dashboard = api_get("/company/dashboard")
-
-    if dashboard and isinstance(dashboard, dict) and dashboard.get("total_sessions", 0) > 0:
-        sessions  = dashboard.get("active_sessions", 0)
-        events    = dashboard.get("total_events", 0)
-        avg_score = dashboard.get("avg_final_score", 0)
-    else:
-        company_map = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
-        company_id = get_company_id()
-        my_company = company_map.get(company_id, "스카이렌터카")
-        dummy = {
-            "스카이렌터카": {"sessions": 2, "events": 10, "avg_score": 75},
-            "제주렌터카":   {"sessions": 2, "events": 12, "avg_score": 71},
-        }
-        d = dummy.get(my_company, {"sessions": 0, "events": 0, "avg_score": 0})
-        sessions  = d["sessions"]
-        events    = d["events"]
-        avg_score = d["avg_score"]
-
-    # 차량·고객 수 (API 없으면 더미)
-    VEHICLE_DUMMY = {"comp_sky": 5, "comp_jeju": 4}
-    CUSTOMER_DUMMY = {"comp_sky": 4, "comp_jeju": 4}
     _cid = get_company_id()
-    vehicle_count  = dashboard.get("vehicle_count", 0) if dashboard and isinstance(dashboard, dict) and dashboard.get("vehicle_count") else VEHICLE_DUMMY.get(_cid, 0)
-    customer_count = dashboard.get("customer_count", 0) if dashboard and isinstance(dashboard, dict) and dashboard.get("customer_count") else CUSTOMER_DUMMY.get(_cid, 0)
+    _comp_map = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
+    _my = _comp_map.get(_cid, "스카이렌터카")
+    _dummy = {
+        "스카이렌터카": {"sessions": 2, "events": 10, "avg_score": 75},
+        "제주렌터카":   {"sessions": 2, "events": 12, "avg_score": 71},
+    }
+    _d = _dummy.get(_my, {"sessions": 0, "events": 0, "avg_score": 0})
+    sessions       = _d["sessions"]
+    events         = _d["events"]
+    avg_score      = _d["avg_score"]
+    vehicle_count  = {"comp_sky": 5, "comp_jeju": 4}.get(_cid, 0)
+    customer_count = {"comp_sky": 4, "comp_jeju": 4}.get(_cid, 0)
 
     st.subheader("📊 오늘 운행 현황")
     m1, m2, m3, m4, m5 = st.columns(5)

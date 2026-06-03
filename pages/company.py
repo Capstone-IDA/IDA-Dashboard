@@ -83,9 +83,10 @@ except Exception:
 # ── 블랙리스트 상태 관리 (session_state) ──
 if "blacklist_status" not in st.session_state:
     st.session_state["blacklist_status"] = {
-        "서울-22-334455": "제한",
-        "경기-09-778899": "관찰 중",
-        "부산-14-223344": "제한",
+        "서울-22-334455": "제한",   # 홍길동
+        "경기-09-778899": "관찰 중", # 이민재
+        "부산-14-223344": "제한",   # 강동원
+        "제주-07-112233": "관찰 중", # 박서준
     }
 if "blacklist_data" not in st.session_state:
     st.session_state["blacklist_data"] = {
@@ -125,16 +126,16 @@ ALL_ALERTS = {
 
 # ── DB에서 실제 danger 세션 읽어서 이벤트 로그 생성 ──
 DRIVER_SESSION_MAP = {
-    "driver1": {"세션": "sess_scenario_1_ecae33", "운전자": "김철수",  "면허번호": "경기-12-345678", "차량번호": "12가 3456", "company": "comp_sky"},
-    "driver2": {"세션": "sess_scenario_2_8eebf6", "운전자": "이영희",  "면허번호": "서울-08-112233", "차량번호": "34나 7890", "company": "comp_sky"},
-    "driver3": {"세션": "sess_scenario_3_70fae7", "운전자": "박민수",  "면허번호": "인천-15-667788", "차량번호": "11바 1234", "company": "comp_jeju"},
-    "driver4": {"세션": "sess_test_99c74936",     "운전자": "최지현",  "면허번호": "경남-03-990011", "차량번호": "22사 5678", "company": "comp_jeju"},
+    "driver1": {"세션": "sess_scenario_1_0602_131649", "운전자": "김철수",  "면허번호": "경기-12-345678", "차량번호": "12가 3456", "company": "comp_sky"},
+    "driver2": {"세션": "sess_scenario_2_0602_131649", "운전자": "이영희",  "면허번호": "서울-08-112233", "차량번호": "34나 7890", "company": "comp_sky"},
+    "driver3": {"세션": "sess_scenario_3_0602_131649", "운전자": "박민수",  "면허번호": "인천-15-667788", "차량번호": "11바 1234", "company": "comp_jeju"},
+    "driver4": {"세션": "sess_scenario_4_0602_131649", "운전자": "최지현",  "면허번호": "경남-03-990011", "차량번호": "22사 5678", "company": "comp_jeju"},
 }
 DYNAMIC_CLASSES = {"Vehicle", "Human", "Two-wheeled Vehicle", "Wheelchair", "Stroller", "Shopping Cart", "Animal"}
 API_BASE = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
 
 def _has_danger_banner(session_id: str) -> bool:
-    """연속 3프레임 이상 danger(동적 객체 기준) 있는지 확인"""
+    """연속 8프레임 이상 danger(전체 객체 기준) 있는지 확인"""
     try:
         r = requests.get(f"{API_BASE}/logs",
             params={"session_id": session_id, "limit": 10000},
@@ -142,10 +143,10 @@ def _has_danger_banner(session_id: str) -> bool:
         frames = r.json().get("frames", [])
         consecutive = 0
         for f in sorted(frames, key=lambda x: x["frame_number"]):
-            risks = [o["risk_level"] for o in f.get("objects", []) if o.get("class_name") in DYNAMIC_CLASSES]
+            risks = [o["risk_level"] for o in f.get("objects", [])]
             if "danger" in risks:
                 consecutive += 1
-                if consecutive >= 3:
+                if consecutive >= 8:
                     return True
             else:
                 consecutive = 0
@@ -226,18 +227,40 @@ DUMMY_REPORTS = {
     ]},
 }
 
-score_data = pd.DataFrame({
-    "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
-    "평균점수": [72, 68, 75, 71, 78, 82, 79, 85, 81, 88, 84, 90],
-})
-distance_data = pd.DataFrame({
-    "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
-    "거리(km)": [1200, 1450, 1380, 1620, 1890, 2100, 2350, 2580, 2410, 2700, 2850, 3100],
-})
-event_stats = pd.DataFrame({
-    "이벤트": ["충돌 위험", "급제동", "급출발", "과속"],
-    "횟수": [8, 22, 15, 12],
-})
+REPORT_DATA = {
+    "스카이렌터카": {
+        "score_data": pd.DataFrame({
+            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
+            "평균점수": [78, 74, 76, 72, 80, 75, 73, 77, 71, 76, 74, 75],
+        }),
+        "distance_data": pd.DataFrame({
+            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
+            "거리(km)": [980, 1120, 1050, 1280, 1420, 1350, 1480, 1560, 1390, 1620, 1580, 1710],
+        }),
+        "event_stats": pd.DataFrame({
+            "이벤트": ["충돌 위험", "급제동", "급출발", "과속"],
+            "횟수": [3, 12, 8, 6],
+        }),
+    },
+    "제주렌터카": {
+        "score_data": pd.DataFrame({
+            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
+            "평균점수": [74, 70, 68, 72, 65, 71, 69, 73, 67, 70, 72, 71],
+        }),
+        "distance_data": pd.DataFrame({
+            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
+            "거리(km)": [1350, 1580, 1420, 1690, 1820, 1950, 2100, 2280, 2050, 2380, 2210, 2450],
+        }),
+        "event_stats": pd.DataFrame({
+            "이벤트": ["충돌 위험", "급제동", "급출발", "과속"],
+            "횟수": [5, 18, 12, 9],
+        }),
+    },
+}
+
+score_data    = REPORT_DATA["스카이렌터카"]["score_data"]
+distance_data = REPORT_DATA["스카이렌터카"]["distance_data"]
+event_stats   = REPORT_DATA["스카이렌터카"]["event_stats"]
 
 # ── API 데이터 로딩 ──
 api_events = api_get("/company/events")
@@ -363,26 +386,27 @@ with col2:
                 st.session_state["show_report"] = license_no
         with bc2:
             cur_status = st.session_state["blacklist_status"].get(license_no, selected_item["상태"])
-            new_status = st.selectbox(
+            _status_key = f"status_select_{license_no}"
+            st.selectbox(
                 "상태 변경",
                 ["관찰 중", "제한", "해제"],
                 index=["관찰 중", "제한", "해제"].index(cur_status) if cur_status in ["관찰 중", "제한", "해제"] else 0,
-                key=f"status_select_{license_no}"
+                key=_status_key
             )
-            if new_status != cur_status:
-                if new_status == "해제":
-                    # 블랙리스트에서 제거
-                    st.session_state["blacklist_data"][selected_company] = [
-                        item for item in st.session_state["blacklist_data"][selected_company]
-                        if item["면허번호"] != license_no
-                    ]
-                    if license_no in st.session_state["blacklist_status"]:
-                        del st.session_state["blacklist_status"][license_no]
-                    st.success(f"✅ {selected_item['운전자']} 블랙리스트 해제")
-                else:
-                    st.session_state["blacklist_status"][license_no] = new_status
-                    st.success(f"✅ 상태 변경: {new_status}")
-                st.rerun()
+        if st.button("✅ 상태 저장", use_container_width=True, key=f"btn_status_save_{license_no}"):
+            _new = st.session_state.get(_status_key, cur_status)
+            if _new == "해제":
+                st.session_state["blacklist_data"][selected_company] = [
+                    item for item in st.session_state["blacklist_data"][selected_company]
+                    if item["면허번호"] != license_no
+                ]
+                if license_no in st.session_state["blacklist_status"]:
+                    del st.session_state["blacklist_status"][license_no]
+                st.success(f"✅ {selected_item['운전자']} 블랙리스트 해제")
+            else:
+                st.session_state["blacklist_status"][license_no] = _new
+                st.success(f"✅ 상태 변경: {_new}")
+            st.rerun()
     else:
         st.success("블랙리스트 운전자가 없습니다.")
 
@@ -462,6 +486,17 @@ if events:
                     })
                     st.session_state["blacklist_data"][selected_company] = existing
                     st.session_state["blacklist_status"][ev_license] = "관찰 중"
+                    # manage.py customers도 블랙리스트 반영
+                    _comp_id = {"스카이렌터카": "comp_sky", "제주렌터카": "comp_jeju"}.get(selected_company, "")
+                    _ckey = f"customers_{_comp_id}"
+                    if _ckey in st.session_state:
+                        for _c in st.session_state[_ckey]:
+                            if _c.get("license") == ev_license:
+                                _c["blacklist"] = True
+                    if "customers" in st.session_state:
+                        for _c in st.session_state["customers"]:
+                            if _c.get("license") == ev_license:
+                                _c["blacklist"] = True
                     st.success(f"✅ {ev_driver} 블랙리스트(관찰 중) 추가 완료!")
                     st.rerun()
             elif is_already_bl:
@@ -516,22 +551,27 @@ st.divider()
 
 # ── 반납 리포트 ──
 st.subheader("📊 반납 리포트")
+_rep = REPORT_DATA.get(selected_company, REPORT_DATA["스카이렌터카"])
 if api_scores and isinstance(api_scores, list) and len(api_scores) > 0:
-    score_data = pd.DataFrame(api_scores)
+    _score_df = pd.DataFrame(api_scores)
+else:
+    _score_df = _rep["score_data"]
+_dist_df   = _rep["distance_data"]
+_event_df  = _rep["event_stats"]
 
 col3, col4, col5 = st.columns(3)
 with col3:
-    fig1 = px.line(distance_data, x="월", y="거리(km)", title="누적 안전주행 거리",
+    fig1 = px.line(_dist_df, x="월", y="거리(km)", title="누적 안전주행 거리",
                    markers=True, color_discrete_sequence=["#534AB7"])
     fig1.update_layout(height=250, margin=dict(t=40, b=20))
     st.plotly_chart(fig1, use_container_width=True)
 with col4:
-    fig2 = px.bar(score_data, x="월", y="평균점수", title="월별 평균 안전주행 점수",
+    fig2 = px.bar(_score_df, x="월", y="평균점수", title="월별 평균 안전주행 점수",
                   color_discrete_sequence=["#1D9E75"])
     fig2.update_layout(height=250, margin=dict(t=40, b=20))
     st.plotly_chart(fig2, use_container_width=True)
 with col5:
-    fig3 = px.bar(event_stats, x="이벤트", y="횟수", title="최근 이벤트 통계",
+    fig3 = px.bar(_event_df, x="이벤트", y="횟수", title="최근 이벤트 통계",
                   color="이벤트", color_discrete_sequence=["#E24B4A","#378ADD","#EF9F27","#BA7517"])
     fig3.update_layout(height=250, margin=dict(t=40, b=20), showlegend=False)
     st.plotly_chart(fig3, use_container_width=True)

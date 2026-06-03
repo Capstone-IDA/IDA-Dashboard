@@ -132,7 +132,7 @@ _ckey = f"customers_{company_id}"
 _rkey = f"rentals_{company_id}"
 
 # 더미 데이터 버전 관리 (변경 시 캐시 강제 초기화)
-_DATA_VERSION = "v4"
+_DATA_VERSION = "v5"
 if st.session_state.get("_data_version") != _DATA_VERSION:
     for k in [_vkey, _ckey, _rkey, "vehicles", "customers", "rentals"]:
         st.session_state.pop(k, None)
