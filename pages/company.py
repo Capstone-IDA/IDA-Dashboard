@@ -14,61 +14,52 @@ if not is_logged_in():
 render_sidebar()
 role = get_role()
 
-# ── 자동 새로고침 (5초) ──
+# ── 자동 새로고침 (5초) - 인터랙션 중엔 억제 ──
+_is_interacting = (
+    st.session_state.get("selected_event_idx") is not None
+    or st.session_state.get("show_report") is not None
+)
 if "last_refresh" not in st.session_state:
     st.session_state["last_refresh"] = time.time()
-if time.time() - st.session_state["last_refresh"] > 5:
+if not _is_interacting and time.time() - st.session_state["last_refresh"] > 5:
     st.session_state["last_refresh"] = time.time()
     st.rerun()
 
 # ── 색상 함수 ──
 def severity_color(val):
-    if val == "높음":
-        return "background-color: #ffcccc; color: #a32d2d; font-weight: bold"
-    elif val == "중간":
-        return "background-color: #fff3cc; color: #854f0b; font-weight: bold"
-    elif val == "낮음":
-        return "background-color: #ccf0d8; color: #085041; font-weight: bold"
+    if val == "높음":   return "background-color: #ffcccc; color: #a32d2d; font-weight: bold"
+    elif val == "중간": return "background-color: #fff3cc; color: #854f0b; font-weight: bold"
+    elif val == "낮음": return "background-color: #ccf0d8; color: #085041; font-weight: bold"
     return ""
 
 def danger_color(val):
-    if val == "위험":
-        return "background-color: #ffcccc; color: #a32d2d; font-weight: bold"
-    elif val == "경고":
-        return "background-color: #fff3cc; color: #854f0b; font-weight: bold"
-    elif val == "안전":
-        return "background-color: #ccf0d8; color: #085041; font-weight: bold"
+    if val == "위험":   return "background-color: #ffcccc; color: #a32d2d; font-weight: bold"
+    elif val == "경고": return "background-color: #fff3cc; color: #854f0b; font-weight: bold"
+    elif val == "안전": return "background-color: #ccf0d8; color: #085041; font-weight: bold"
     return ""
 
 def score_color(val):
     if isinstance(val, (int, float)):
-        if val < 30:
-            return "color: #a32d2d; font-weight: bold"
-        elif val < 50:
-            return "color: #854f0b; font-weight: bold"
-        elif val < 80:
-            return "color: #185fa5; font-weight: bold"
-        else:
-            return "color: #085041; font-weight: bold"
+        if val < 30:   return "color: #a32d2d; font-weight: bold"
+        elif val < 50: return "color: #854f0b; font-weight: bold"
+        elif val < 80: return "color: #185fa5; font-weight: bold"
+        else:          return "color: #085041; font-weight: bold"
     return ""
 
 def status_color(val):
-    if val == "제한":
-        return "background-color: #ffcccc; color: #a32d2d; font-weight: bold"
-    elif val == "관찰 중":
-        return "background-color: #fff3cc; color: #854f0b; font-weight: bold"
+    if val == "제한":    return "background-color: #ffcccc; color: #a32d2d; font-weight: bold"
+    elif val == "관찰 중": return "background-color: #fff3cc; color: #854f0b; font-weight: bold"
     return ""
 
 def time_offset(base_time_str: str, offset_minutes: int) -> str:
     try:
         h, m, s = map(int, base_time_str.split(":"))
-        total = h * 60 + m - offset_minutes
-        total = max(0, total)
+        total = max(0, h * 60 + m - offset_minutes)
         return f"{total // 60:02d}:{total % 60:02d}:{s:02d}"
     except Exception:
         return base_time_str
 
-# ── active_session.json 파일에서 읽기 ──
+# ── active_session.json ──
 active_session_data = {}
 active_driver = None
 try:
@@ -80,13 +71,13 @@ try:
 except Exception:
     pass
 
-# ── 블랙리스트 상태 관리 (session_state) ──
+# ── session_state 초기화 ──
 if "blacklist_status" not in st.session_state:
     st.session_state["blacklist_status"] = {
-        "서울-22-334455": "제한",   # 홍길동
-        "경기-09-778899": "관찰 중", # 이민재
-        "부산-14-223344": "제한",   # 강동원
-        "제주-07-112233": "관찰 중", # 박서준
+        "서울-22-334455": "제한",
+        "경기-09-778899": "관찰 중",
+        "부산-14-223344": "제한",
+        "제주-07-112233": "관찰 중",
     }
 if "blacklist_data" not in st.session_state:
     st.session_state["blacklist_data"] = {
@@ -99,8 +90,14 @@ if "blacklist_data" not in st.session_state:
             {"순위": 2, "운전자": "박서준", "면허번호": "제주-07-112233", "점수": 34, "상태": "관찰 중"},
         ],
     }
+if "selected_event_idx" not in st.session_state:
+    st.session_state["selected_event_idx"] = None
+if "show_report" not in st.session_state:
+    st.session_state["show_report"] = None
+if "bl_selected_idx" not in st.session_state:
+    st.session_state["bl_selected_idx"] = None
 
-# ── 시나리오 정보 ──
+# ── 상수 ──
 SCENARIO_INFO = {
     "driver1": {"차량번호": "12가 3456", "운전자": "김철수", "면허번호": "경기-12-345678", "company": "comp_sky"},
     "driver2": {"차량번호": "34나 7890", "운전자": "이영희", "면허번호": "서울-08-112233", "company": "comp_sky"},
@@ -108,36 +105,31 @@ SCENARIO_INFO = {
     "driver4": {"차량번호": "22사 5678", "운전자": "최지현", "면허번호": "경남-03-990011", "company": "comp_jeju"},
 }
 company_map = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
-
-# ── 시간 기준 (active_session.json started_at 기준) ──
 _base_t = active_session_data.get("started_at", time.strftime("%H:%M:%S"))
 
-# ── 더미 데이터 ──
 ALL_ALERTS = {
     "스카이렌터카": [
-        {"세션ID": "SES-0421", "시간": time_offset(_base_t, 1), "심각도": "중간",  "이벤트": "전방 차량 접근 감지", "운전자": "이영희", "차량번호": "34나 7890"},
-        {"세션ID": "SES-0420", "시간": time_offset(_base_t, 4), "심각도": "중간",  "이벤트": "급제동 감지",         "운전자": "김철수", "차량번호": "12가 3456"},
+        {"세션ID": "SES-0421", "시간": time_offset(_base_t, 1), "심각도": "중간", "이벤트": "전방 차량 접근 감지", "운전자": "이영희", "차량번호": "34나 7890"},
+        {"세션ID": "SES-0420", "시간": time_offset(_base_t, 4), "심각도": "중간", "이벤트": "급제동 감지",         "운전자": "김철수", "차량번호": "12가 3456"},
     ],
     "제주렌터카": [
-        {"세션ID": "SES-0431", "시간": time_offset(_base_t, 2), "심각도": "중간",  "이벤트": "고속 주행 감지",     "운전자": "박민수", "차량번호": "11바 1234"},
-        {"세션ID": "SES-0430", "시간": time_offset(_base_t, 6), "심각도": "높음",  "이벤트": "전방 차량 충돌 위험", "운전자": "최지현", "차량번호": "22사 5678"},
+        {"세션ID": "SES-0431", "시간": time_offset(_base_t, 2), "심각도": "중간", "이벤트": "고속 주행 감지",      "운전자": "박민수", "차량번호": "11바 1234"},
+        {"세션ID": "SES-0430", "시간": time_offset(_base_t, 6), "심각도": "높음", "이벤트": "전방 차량 충돌 위험", "운전자": "최지현", "차량번호": "22사 5678"},
     ],
 }
 
-# ── DB에서 실제 danger 세션 읽어서 이벤트 로그 생성 ──
 DRIVER_SESSION_MAP = {
-    "driver1": {"세션": "sess_scenario_1_0602_131649", "운전자": "김철수",  "면허번호": "경기-12-345678", "차량번호": "12가 3456", "company": "comp_sky"},
-    "driver2": {"세션": "sess_scenario_2_0602_131649", "운전자": "이영희",  "면허번호": "서울-08-112233", "차량번호": "34나 7890", "company": "comp_sky"},
-    "driver3": {"세션": "sess_scenario_3_0602_131649", "운전자": "박민수",  "면허번호": "인천-15-667788", "차량번호": "11바 1234", "company": "comp_jeju"},
-    "driver4": {"세션": "sess_scenario_4_0602_131649", "운전자": "최지현",  "면허번호": "경남-03-990011", "차량번호": "22사 5678", "company": "comp_jeju"},
+    "driver1": {"세션": "sess_scenario_1_0602_131649", "운전자": "김철수", "면허번호": "경기-12-345678", "차량번호": "12가 3456", "company": "comp_sky"},
+    "driver2": {"세션": "sess_scenario_2_0602_131649", "운전자": "이영희", "면허번호": "서울-08-112233", "차량번호": "34나 7890", "company": "comp_sky"},
+    "driver3": {"세션": "sess_scenario_3_0602_131649", "운전자": "박민수", "면허번호": "인천-15-667788", "차량번호": "11바 1234", "company": "comp_jeju"},
+    "driver4": {"세션": "sess_scenario_4_0602_131649", "운전자": "최지현", "면허번호": "경남-03-990011", "차량번호": "22사 5678", "company": "comp_jeju"},
 }
-DYNAMIC_CLASSES = {"Vehicle", "Human", "Two-wheeled Vehicle", "Wheelchair", "Stroller", "Shopping Cart", "Animal"}
-API_BASE = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
+BASE_URL = "https://blast-london-istanbul-kitty.trycloudflare.com"
 
 def _has_danger_banner(session_id: str) -> bool:
-    """연속 8프레임 이상 danger(전체 객체 기준) 있는지 확인"""
     try:
-        r = requests.get(f"{API_BASE}/logs",
+        import requests
+        r = requests.get(f"{BASE_URL}/logs",
             params={"session_id": session_id, "limit": 10000},
             headers={"ngrok-skip-browser-warning": "true"}, timeout=10)
         frames = r.json().get("frames", [])
@@ -154,22 +146,6 @@ def _has_danger_banner(session_id: str) -> bool:
         pass
     return False
 
-def _get_score(session_id: str) -> int:
-    """세션 최종 점수 조회"""
-    try:
-        r = requests.get(f"{API_BASE}/company/scores",
-            headers={"ngrok-skip-browser-warning": "true", "Authorization": f"Bearer {st.session_state.get('token', '')}"},
-            timeout=5)
-        scores = r.json()
-        if isinstance(scores, list):
-            for s in scores:
-                if s.get("session_id") == session_id:
-                    return s.get("final_score", 22)
-    except Exception:
-        pass
-    return 22
-
-# 실제 DB 기반 이벤트 로그 생성
 _live_events = {"스카이렌터카": [], "제주렌터카": []}
 _comp_name_map = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
 _event_label = {"driver4": "전방 차량 충돌 위험", "driver2": "전방 차량 접근 감지", "driver1": "급제동 감지", "driver3": "고속 주행 감지"}
@@ -181,18 +157,16 @@ for did, info in DRIVER_SESSION_MAP.items():
         severity = "위험" if did == "driver4" else "경고"
         _live_events[comp].append({
             "시간": time_offset(_base_t, {"driver1": 4, "driver2": 1, "driver3": 2, "driver4": 6}.get(did, 5)),
-            "운전자": info["운전자"],
-            "면허번호": info["면허번호"],
-            "차량번호": info["차량번호"],
-            "이벤트": _event_label.get(did, "위험 이벤트"),
-            "점수": score,
-            "위험도": severity,
+            "운전자": info["운전자"], "면허번호": info["면허번호"],
+            "차량번호": info["차량번호"], "이벤트": _event_label.get(did, "위험 이벤트"),
+            "점수": score, "위험도": severity,
         })
 
 ALL_EVENTS = _live_events if any(_live_events.values()) else {
     "스카이렌터카": [],
     "제주렌터카": [
-        {"시간": time_offset(_base_t, 6), "운전자": "최지현", "면허번호": "경남-03-990011", "차량번호": "22사 5678", "이벤트": "전방 차량 충돌 위험", "점수": 22, "위험도": "위험"},
+        {"시간": time_offset(_base_t, 6), "운전자": "최지현", "면허번호": "경남-03-990011",
+         "차량번호": "22사 5678", "이벤트": "전방 차량 충돌 위험", "점수": 22, "위험도": "위험"},
     ],
 }
 
@@ -229,64 +203,34 @@ DUMMY_REPORTS = {
 
 REPORT_DATA = {
     "스카이렌터카": {
-        "score_data": pd.DataFrame({
-            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
-            "평균점수": [78, 74, 76, 72, 80, 75, 73, 77, 71, 76, 74, 75],
-        }),
-        "distance_data": pd.DataFrame({
-            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
-            "거리(km)": [980, 1120, 1050, 1280, 1420, 1350, 1480, 1560, 1390, 1620, 1580, 1710],
-        }),
-        "event_stats": pd.DataFrame({
-            "이벤트": ["충돌 위험", "급제동", "급출발", "과속"],
-            "횟수": [3, 12, 8, 6],
-        }),
+        "score_data": pd.DataFrame({"월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"], "평균점수": [78,74,76,72,80,75,73,77,71,76,74,75]}),
+        "distance_data": pd.DataFrame({"월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"], "거리(km)": [980,1120,1050,1280,1420,1350,1480,1560,1390,1620,1580,1710]}),
+        "event_stats": pd.DataFrame({"이벤트": ["충돌 위험","급제동","급출발","과속"], "횟수": [3,12,8,6]}),
     },
     "제주렌터카": {
-        "score_data": pd.DataFrame({
-            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
-            "평균점수": [74, 70, 68, 72, 65, 71, 69, 73, 67, 70, 72, 71],
-        }),
-        "distance_data": pd.DataFrame({
-            "월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
-            "거리(km)": [1350, 1580, 1420, 1690, 1820, 1950, 2100, 2280, 2050, 2380, 2210, 2450],
-        }),
-        "event_stats": pd.DataFrame({
-            "이벤트": ["충돌 위험", "급제동", "급출발", "과속"],
-            "횟수": [5, 18, 12, 9],
-        }),
+        "score_data": pd.DataFrame({"월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"], "평균점수": [74,70,68,72,65,71,69,73,67,70,72,71]}),
+        "distance_data": pd.DataFrame({"월": ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"], "거리(km)": [1350,1580,1420,1690,1820,1950,2100,2280,2050,2380,2210,2450]}),
+        "event_stats": pd.DataFrame({"이벤트": ["충돌 위험","급제동","급출발","과속"], "횟수": [5,18,12,9]}),
     },
 }
 
-score_data    = REPORT_DATA["스카이렌터카"]["score_data"]
-distance_data = REPORT_DATA["스카이렌터카"]["distance_data"]
-event_stats   = REPORT_DATA["스카이렌터카"]["event_stats"]
-
 # ── API 데이터 로딩 ──
-api_events = api_get("/company/events")
-api_blacklist = api_get("/company/blacklist")
-api_scores = api_get("/company/scores")
+api_events        = api_get("/company/events")
+api_blacklist     = api_get("/company/blacklist")
+api_scores        = api_get("/company/scores")
 api_notifications = api_get("/company/notifications")
 
 # ── 업체 선택 ──
 companies = ["스카이렌터카", "제주렌터카"]
 
 st.title("🏢 Company Dashboard")
-if is_online():
-    st.caption("🟢 서버 연결됨")
-else:
-    st.caption("🟡 오프라인 모드")
+st.caption("🟢 서버 연결됨" if is_online() else "🟡 오프라인 모드")
 
 if role == "admin":
     api_companies = api_get("/auth/companies")
-    if api_companies and isinstance(api_companies, list) and len(api_companies) > 0:
-        _names = [c.get("company_name", "") for c in api_companies if c.get("company_name")]
-        if _names:
-            companies = _names
-        else:
-            companies = ["스카이렌터카", "제주렌터카"]
-    else:
-        companies = ["스카이렌터카", "제주렌터카"]
+    if api_companies and isinstance(api_companies, list):
+        _names = [c.get("company_name","") for c in api_companies if c.get("company_name")]
+        companies = _names if _names else companies
     search_col, drop_col = st.columns([1, 2])
     with search_col:
         company_search = st.text_input("업체 검색", placeholder="업체명 입력...", key="company_search_1")
@@ -298,266 +242,304 @@ else:
     selected_company = company_map.get(get_company_id(), "스카이렌터카")
     st.markdown(f"**{get_company_name()}** 운행 현황")
 
-# ── 현재 운행 중인 차량 (해당 업체 전체) ──
+# ── 현재 운행 중인 차량 ──
 comp_id_map = {"스카이렌터카": "comp_sky", "제주렌터카": "comp_jeju"}
 current_comp_id = comp_id_map.get(selected_company, "comp_sky")
 running_drivers = {k: v for k, v in SCENARIO_INFO.items() if v["company"] == current_comp_id}
-
-RENTAL_START_TIME = {
-    "driver1": "2026-06-02 09:15:00",
-    "driver2": "2026-06-02 09:32:00",
-    "driver3": "2026-06-02 10:05:00",
-    "driver4": "2026-06-02 10:22:00",
-}
+RENTAL_START_TIME = {"driver1": "2026-06-02 09:15:00", "driver2": "2026-06-02 09:32:00",
+                     "driver3": "2026-06-02 10:05:00", "driver4": "2026-06-02 10:22:00"}
 
 if running_drivers:
     st.markdown("**🚗 현재 운행 중인 차량**")
     cols = st.columns(len(running_drivers))
     for i, (did, info) in enumerate(running_drivers.items()):
         with cols[i]:
-            started = RENTAL_START_TIME.get(did, "2026-06-02 09:00:00")
             st.markdown(f"""
             <div style='border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;'>
                 <div style='font-size:0.8rem; color:#555; font-weight:bold;'>운행 중</div>
                 <div style='font-weight:bold; margin-top:4px;'>{info['차량번호']}</div>
                 <div style='font-size:0.85rem; color:#555;'>{info['운전자']}</div>
-                <div style='font-size:0.75rem; color:#888; margin-top:2px;'>시작: {started}</div>
-            </div>
-            """, unsafe_allow_html=True)
+                <div style='font-size:0.75rem; color:#888; margin-top:2px;'>시작: {RENTAL_START_TIME.get(did,'')}</div>
+            </div>""", unsafe_allow_html=True)
 
 st.divider()
 
-# ── 알림 + 블랙리스트 ──
-if api_notifications and isinstance(api_notifications, list) and len(api_notifications) > 0:
-    alerts = api_notifications
-else:
-    alerts = ALL_ALERTS.get(selected_company, [])
-
-if api_events and isinstance(api_events, list) and len(api_events) > 0:
-    events = api_events
-else:
-    events = ALL_EVENTS.get(selected_company, [])
+# ── 데이터 준비 ──
+alerts = api_notifications if (api_notifications and isinstance(api_notifications, list)) else ALL_ALERTS.get(selected_company, [])
+events = api_events if (api_events and isinstance(api_events, list)) else ALL_EVENTS.get(selected_company, [])
 
 blacklist_raw = st.session_state["blacklist_data"].get(selected_company, [])
-# session_state 상태 반영
 for item in blacklist_raw:
     item["상태"] = st.session_state["blacklist_status"].get(item["면허번호"], item["상태"])
 
-col1, col2 = st.columns(2)
 
-with col1:
-    st.subheader("🚨 실시간 위험 알림")
-    if alerts:
-        # 컬럼 순서: 세션ID, 시간, 심각도, 이벤트, 운전자, 차량번호
-        col_order = ["세션ID", "시간", "심각도", "이벤트", "운전자", "차량번호"]
-        alerts_df = pd.DataFrame(alerts)
-        existing_cols = [c for c in col_order if c in alerts_df.columns]
-        alerts_df = alerts_df[existing_cols]
-        if "심각도" in alerts_df.columns:
-            styled_alerts = alerts_df.style.map(severity_color, subset=["심각도"])
-            st.dataframe(styled_alerts, use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(alerts_df, use_container_width=True, hide_index=True)
-    else:
-        st.success("위험 알림이 없습니다.")
+# ════════════════════════════════════════════════
+# FRAGMENT 1: 블랙리스트 관리 (이 부분만 재렌더)
+# ════════════════════════════════════════════════
+@st.fragment
+def render_blacklist(selected_company, blacklist_raw, alerts):
+    col1, col2 = st.columns(2)
 
-with col2:
-    st.subheader("🚫 블랙리스트 운전자 관리")
-    if blacklist_raw:
-        bl_df = pd.DataFrame(blacklist_raw)
-        styled_bl = bl_df.style
-        if "점수" in bl_df.columns:
-            styled_bl = styled_bl.map(score_color, subset=["점수"])
-        if "상태" in bl_df.columns:
-            styled_bl = styled_bl.map(status_color, subset=["상태"])
-        st.dataframe(styled_bl, use_container_width=True, hide_index=True)
-
-        # 운전자 선택 → 리포트 + 상태 변경
-        driver_options = [f"{item['운전자']} ({item['면허번호']})" for item in blacklist_raw]
-        selected_bl_driver = st.selectbox("운전자 선택", driver_options, key="bl_driver_select")
-
-        selected_idx = driver_options.index(selected_bl_driver)
-        selected_item = blacklist_raw[selected_idx]
-        license_no = selected_item["면허번호"]
-
-        bc1, bc2 = st.columns(2)
-        with bc1:
-            if st.button("📋 리포트 보기", use_container_width=True, key="btn_report_view_1"):
-                st.session_state["show_report"] = license_no
-        with bc2:
-            cur_status = st.session_state["blacklist_status"].get(license_no, selected_item["상태"])
-            _status_key = f"status_select_{license_no}"
-            st.selectbox(
-                "상태 변경",
-                ["관찰 중", "제한", "해제"],
-                index=["관찰 중", "제한", "해제"].index(cur_status) if cur_status in ["관찰 중", "제한", "해제"] else 0,
-                key=_status_key
-            )
-        if st.button("✅ 상태 저장", use_container_width=True, key=f"btn_status_save_{license_no}"):
-            _new = st.session_state.get(_status_key, cur_status)
-            if _new == "해제":
-                st.session_state["blacklist_data"][selected_company] = [
-                    item for item in st.session_state["blacklist_data"][selected_company]
-                    if item["면허번호"] != license_no
-                ]
-                if license_no in st.session_state["blacklist_status"]:
-                    del st.session_state["blacklist_status"][license_no]
-                st.success(f"✅ {selected_item['운전자']} 블랙리스트 해제")
+    with col1:
+        st.subheader("🚨 실시간 위험 알림")
+        if alerts:
+            col_order = ["세션ID", "시간", "심각도", "이벤트", "운전자", "차량번호"]
+            alerts_df = pd.DataFrame(alerts)
+            existing_cols = [c for c in col_order if c in alerts_df.columns]
+            alerts_df = alerts_df[existing_cols]
+            if "심각도" in alerts_df.columns:
+                st.dataframe(alerts_df.style.map(severity_color, subset=["심각도"]), use_container_width=True, hide_index=True)
             else:
-                st.session_state["blacklist_status"][license_no] = _new
-                st.success(f"✅ 상태 변경: {_new}")
-            st.rerun()
-    else:
-        st.success("블랙리스트 운전자가 없습니다.")
+                st.dataframe(alerts_df, use_container_width=True, hide_index=True)
+        else:
+            st.success("위험 알림이 없습니다.")
 
-# ── 리포트 모달 ──
-if st.session_state.get("show_report"):
-    license_no = st.session_state["show_report"]
-    if license_no in DUMMY_REPORTS:
-        report = DUMMY_REPORTS[license_no]
-        with st.expander(f"📋 {report['이름']} ({license_no}) 종합 리포트", expanded=True):
-            rc1, rc2 = st.columns(2)
-            rc1.metric("최종 점수", f"{report['총점']}점")
-            rc2.metric("총 위험 이벤트", f"{report['총 이벤트']}건")
-            st.dataframe(pd.DataFrame(report["이벤트 목록"]), use_container_width=True, hide_index=True)
-            if st.button("닫기", key="btn_close_2"):
-                st.session_state["show_report"] = None
-                st.rerun()
+    with col2:
+        st.subheader("🚫 블랙리스트 운전자 관리")
+        # blacklist_raw를 매번 session_state에서 새로 읽기
+        bl_list = st.session_state["blacklist_data"].get(selected_company, [])
+        for item in bl_list:
+            item["상태"] = st.session_state["blacklist_status"].get(item["면허번호"], item["상태"])
+
+        if bl_list:
+            # 색상 스타일 적용한 테이블 (on_select로 행 클릭)
+            bl_df = pd.DataFrame(bl_list)[["운전자", "면허번호", "점수", "상태"]]
+            styled_bl = bl_df.style
+            if "점수" in bl_df.columns:
+                styled_bl = styled_bl.map(score_color, subset=["점수"])
+            if "상태" in bl_df.columns:
+                styled_bl = styled_bl.map(status_color, subset=["상태"])
+            bl_selected = st.dataframe(
+                styled_bl,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="bl_table_select",
+            )
+            if bl_selected and bl_selected.selection.rows:
+                st.session_state["bl_selected_idx"] = bl_selected.selection.rows[0]
+
+        else:
+            st.session_state["bl_selected_idx"] = None
+            st.success("블랙리스트 운전자가 없습니다.")
+
+    # 선택된 블랙리스트 운전자 패널 (col 바깥, 전체 너비)
+    bl_sel = st.session_state.get("bl_selected_idx")
+    bl_list_cur = st.session_state["blacklist_data"].get(selected_company, [])
+    if bl_sel is not None and bl_sel < len(bl_list_cur):
+        sel_item = bl_list_cur[bl_sel]
+        license_no = sel_item["면허번호"]
+        cur_status = st.session_state["blacklist_status"].get(license_no, sel_item["상태"])
+
+        with st.container(border=True):
+            _h1, _h2 = st.columns([8, 1])
+            with _h1:
+                st.markdown(f"**{sel_item['운전자']}** ({license_no}) | 점수: **{sel_item['점수']}점**")
+            with _h2:
+                if st.button("✖", key="bl_close_btn"):
+                    st.session_state["bl_selected_idx"] = None
+                    for _k in list(st.session_state.keys()):
+                        if "bl_table_select" in _k:
+                            del st.session_state[_k]
+                    st.rerun(scope="app")
+
+            pa1, pa2 = st.columns(2)
+            with pa1:
+                if st.button("📋 리포트 보기", use_container_width=True, key="bl_panel_report"):
+                    st.session_state["show_report"] = license_no
+            with pa2:
+                _status_key = f"bl_status_sel_{license_no}"
+                new_status = st.selectbox(
+                    "상태 변경",
+                    ["관찰 중", "제한", "해제"],
+                    index=["관찰 중", "제한", "해제"].index(cur_status) if cur_status in ["관찰 중", "제한", "해제"] else 0,
+                    key=_status_key,
+                    label_visibility="collapsed",
+                )
+                if st.button("✅ 저장", use_container_width=True, key=f"bl_save_{license_no}"):
+                    if new_status == "해제":
+                        st.session_state["blacklist_data"][selected_company] = [
+                            item for item in st.session_state["blacklist_data"][selected_company]
+                            if item["면허번호"] != license_no
+                        ]
+                        if license_no in st.session_state["blacklist_status"]:
+                            del st.session_state["blacklist_status"][license_no]
+                        st.session_state["bl_selected_idx"] = None
+                    else:
+                        st.session_state["blacklist_status"][license_no] = new_status
+                        for _item in st.session_state["blacklist_data"].get(selected_company, []):
+                            if _item["면허번호"] == license_no:
+                                _item["상태"] = new_status
+                    st.rerun()
+
+    # 리포트 모달
+    if st.session_state.get("show_report"):
+        license_no_rep = st.session_state["show_report"]
+        if license_no_rep in DUMMY_REPORTS:
+            report = DUMMY_REPORTS[license_no_rep]
+            with st.container(border=True):
+                _r1, _r2 = st.columns([8, 1])
+                with _r1:
+                    st.markdown(f"**📋 {report['이름']} ({license_no_rep}) 종합 리포트**")
+                with _r2:
+                    if st.button("✖", key="btn_close_report"):
+                        st.session_state["show_report"] = None
+                        st.rerun()
+                rc1, rc2 = st.columns(2)
+                rc1.metric("최종 점수", f"{report['총점']}점")
+                rc2.metric("총 위험 이벤트", f"{report['총 이벤트']}건")
+                st.dataframe(pd.DataFrame(report["이벤트 목록"]), use_container_width=True, hide_index=True)
+
+render_blacklist(selected_company, blacklist_raw, alerts)
 
 st.divider()
 
-# ── 이벤트 로그 ──
-st.subheader("📋 스코어 이력 및 이벤트 로그")
-st.caption("운전자 이름을 선택해 블랙리스트에 추가하거나 전·후 영상을 확인할 수 있습니다.")
 
-if events:
+# ════════════════════════════════════════════════
+# FRAGMENT 2: 이벤트 로그 + 영상 (이 부분만 재렌더)
+# ════════════════════════════════════════════════
+@st.fragment
+def render_event_log(selected_company, events):
+    st.subheader("📋 스코어 이력 및 이벤트 로그")
+    st.caption("이벤트 버튼을 눌러 상세 정보 및 영상을 확인하세요.")
+
+    if not events:
+        st.success("위험 이벤트가 없습니다.")
+        return
+
+    # 테이블 표시
     events_df = pd.DataFrame(events)
-    style_subsets = {}
-    if "위험도" in events_df.columns:
-        style_subsets["위험도"] = danger_color
-    if "점수" in events_df.columns:
-        style_subsets["점수"] = score_color
     styled_events = events_df.style
-    for col_name, func in style_subsets.items():
-        styled_events = styled_events.map(func, subset=[col_name])
-
+    if "위험도" in events_df.columns:
+        styled_events = styled_events.map(danger_color, subset=["위험도"])
+    if "점수" in events_df.columns:
+        styled_events = styled_events.map(score_color, subset=["점수"])
     selected_row = st.dataframe(
         styled_events, use_container_width=True, hide_index=True,
         on_select="rerun", selection_mode="single-row",
     )
-
+    # 행 클릭 시만 업데이트 (해제해도 기존 선택 유지)
     if selected_row and selected_row.selection.rows:
-        idx = selected_row.selection.rows[0]
-        ev = events[idx]
+        st.session_state["selected_event_idx"] = selected_row.selection.rows[0]
+    # 닫기 버튼 따로 제공 (선택 해제로 사라지지 않음)
 
-        with st.expander(f"🎬 {ev.get('운전자', 'N/A')} ({ev.get('면허번호', 'N/A')}) | {ev.get('이벤트', '')} | {ev.get('시간', '')}", expanded=True):
-            from pathlib import Path
-            import tempfile, glob
+    # 선택된 이벤트 상세
+    sel_idx = st.session_state.get("selected_event_idx")
+    if sel_idx is None or sel_idx >= len(events):
+        return
 
-            ev_license = ev.get("면허번호", "")
-            ev_driver  = ev.get("운전자", "")
-            ev_score   = ev.get("점수", 100)
-            plate      = ev.get("차량번호", "")
+    ev = events[sel_idx]
+    from pathlib import Path
+    import tempfile, glob
 
-            PLATE_SCENARIO = {"12가 3456": 1, "34나 7890": 2, "11바 1234": 3, "22사 5678": 4}
-            DRIVER_ID = {1: "driver1", 2: "driver2", 3: "driver3", 4: "driver4"}
-            scenario_num = PLATE_SCENARIO.get(plate, 1)
-            driver_id = DRIVER_ID.get(scenario_num, "driver1")
+    ev_license = ev.get("면허번호", "")
+    ev_driver  = ev.get("운전자", "")
+    ev_score   = ev.get("점수", 100)
+    plate      = ev.get("차량번호", "")
 
-            base = Path(_os.getcwd())
-            tmp_dir = Path(tempfile.gettempdir())
-            annotated_files = sorted(glob.glob(str(tmp_dir / f"ida_annotated_{driver_id}_*.mp4")))
+    PLATE_SCENARIO = {"12가 3456": 1, "34나 7890": 2, "11바 1234": 3, "22사 5678": 4}
+    DRIVER_ID      = {1: "driver1", 2: "driver2", 3: "driver3", 4: "driver4"}
+    scenario_num   = PLATE_SCENARIO.get(plate, 1)
+    driver_id      = DRIVER_ID.get(scenario_num, "driver1")
 
-            # 블랙리스트 추가 버튼
-            is_already_bl = any(
-                item["면허번호"] == ev_license
-                for item in st.session_state["blacklist_data"].get(selected_company, [])
-            )
-            if not is_already_bl and ev_score < 80:
-                if st.button(f"🚫 {ev_driver} 블랙리스트 추가 (관찰 중)", key=f"add_bl_{ev_license}", use_container_width=True):
-                    existing = st.session_state["blacklist_data"].get(selected_company, [])
-                    new_rank = len(existing) + 1
-                    existing.append({
-                        "순위": new_rank,
-                        "운전자": ev_driver,
-                        "면허번호": ev_license,
-                        "점수": ev_score,
-                        "상태": "관찰 중"
-                    })
-                    st.session_state["blacklist_data"][selected_company] = existing
-                    st.session_state["blacklist_status"][ev_license] = "관찰 중"
-                    # manage.py customers도 블랙리스트 반영
-                    _comp_id = {"스카이렌터카": "comp_sky", "제주렌터카": "comp_jeju"}.get(selected_company, "")
-                    _ckey = f"customers_{_comp_id}"
-                    if _ckey in st.session_state:
-                        for _c in st.session_state[_ckey]:
-                            if _c.get("license") == ev_license:
-                                _c["blacklist"] = True
-                    if "customers" in st.session_state:
-                        for _c in st.session_state["customers"]:
-                            if _c.get("license") == ev_license:
-                                _c["blacklist"] = True
-                    st.success(f"✅ {ev_driver} 블랙리스트(관찰 중) 추가 완료!")
-                    st.rerun()
-            elif is_already_bl:
-                st.info(f"ℹ️ {ev_driver}은 이미 블랙리스트에 등록되어 있습니다.")
+    base     = Path(_os.getcwd())
+    tmp_dir  = Path(tempfile.gettempdir())
+    annotated_files = sorted(glob.glob(str(tmp_dir / f"ida_annotated_{driver_id}_*.mp4")))
 
-            st.divider()
+    with st.container(border=True):
+        _title_col, _close_col = st.columns([8, 1])
+        with _title_col:
+            st.markdown(f"#### 🎬 {ev_driver} ({ev_license}) | {ev.get('이벤트','')} | {ev.get('시간','')}")
+        with _close_col:
+            if st.button("✖", key="close_event_top", help="닫기"):
+                st.session_state["selected_event_idx"] = None
+                # dataframe 내부 선택 상태 키도 초기화
+                for _k in list(st.session_state.keys()):
+                    if "dataframe" in _k or "AgGrid" in _k:
+                        del st.session_state[_k]
+                st.rerun(scope="app")
 
-            # 시나리오4(충돌 위험)만 영상 클립 표시
-            if plate == "22사 5678":
-                col_v1, col_v2 = st.columns(2)
-                with col_v1:
-                    st.markdown("**📹 이벤트 전 (5초)**")
-                    before_src = base / f"videos/test_scenario_{scenario_num}.mp4"
-                    clip_before = tmp_dir / f"clip_before_{scenario_num}.mp4"
-                    if not clip_before.exists() and before_src.exists():
-                        import subprocess
-                        subprocess.run([
-                            "ffmpeg", "-y", "-i", str(before_src),
-                            "-t", "5", "-c", "copy", str(clip_before)
-                        ], capture_output=True)
-                    if clip_before.exists():
-                        st.video(str(clip_before))
-                    elif before_src.exists():
-                        st.video(str(before_src))
-                    else:
-                        st.info("영상 파일 없음")
+        # 블랙리스트 추가 버튼
+        is_already_bl = any(
+            item["면허번호"] == ev_license
+            for item in st.session_state["blacklist_data"].get(selected_company, [])
+        )
+        if not is_already_bl and ev_score < 80:
+            if st.button(f"🚫 {ev_driver} 블랙리스트 추가 (관찰 중)",
+                         key=f"add_bl_{ev_license}_{sel_idx}", use_container_width=True):
+                existing = st.session_state["blacklist_data"].get(selected_company, [])
+                existing.append({
+                    "순위": len(existing) + 1,
+                    "운전자": ev_driver, "면허번호": ev_license,
+                    "점수": ev_score, "상태": "관찰 중"
+                })
+                st.session_state["blacklist_data"][selected_company] = existing
+                st.session_state["blacklist_status"][ev_license] = "관찰 중"
+                _comp_id = {"스카이렌터카": "comp_sky", "제주렌터카": "comp_jeju"}.get(selected_company, "")
+                for _ckey in [f"customers_{_comp_id}", "customers"]:
+                    for _c in st.session_state.get(_ckey, []):
+                        if _c.get("license") == ev_license:
+                            _c["blacklist"] = True
+                st.rerun(scope="app")  # 앱 전체 rerun → 블랙리스트 테이블 즉시 갱신
+        elif is_already_bl:
+            st.info(f"ℹ️ {ev_driver}은 이미 블랙리스트에 등록되어 있습니다.")
 
-                with col_v2:
-                    st.markdown("**📹 이벤트 후 (끝까지)**")
-                    after_src = Path(annotated_files[-1]) if annotated_files else (base / f"videos/test_scenario_{scenario_num}.mp4")
-                    clip_after = tmp_dir / f"clip_after_{scenario_num}.mp4"
-                    if not clip_after.exists() and after_src.exists():
-                        import subprocess
-                        subprocess.run([
-                            "ffmpeg", "-y", "-i", str(after_src),
-                            "-ss", "8", "-c", "copy", str(clip_after)
-                        ], capture_output=True)
-                    if clip_after.exists():
-                        st.video(str(clip_after))
-                    elif after_src.exists():
-                        st.video(str(after_src))
-                    else:
-                        st.info("영상 파일 없음. 드라이버 대시보드에서 먼저 재생해주세요.")
-            else:
-                st.info("ℹ️ 위험 이벤트(DANGER)가 발생한 경우에만 영상 클립이 제공됩니다.")
+        st.divider()
 
-else:
-    if not events:
-        st.success("위험 이벤트가 없습니다.")
+        # 영상 클립 (danger 감지된 시나리오면 자동으로 표시)
+        _driver_session = DRIVER_SESSION_MAP.get(driver_id, {}).get("세션", "")
+        _has_danger = _has_danger_banner(_driver_session)
+        if _has_danger:
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                st.markdown("**📹 이벤트 전 (5초)**")
+                before_src  = base / f"videos/test_scenario_{scenario_num}.mp4"
+                clip_before = tmp_dir / f"clip_before_{scenario_num}.mp4"
+                if not clip_before.exists() and before_src.exists():
+                    import subprocess
+                    with st.spinner("영상 준비 중..."):
+                        subprocess.run(["ffmpeg", "-y", "-i", str(before_src),
+                                        "-t", "5", "-c", "copy", str(clip_before)],
+                                       capture_output=True)
+                if clip_before.exists():
+                    st.video(str(clip_before))
+                elif before_src.exists():
+                    st.video(str(before_src))
+                else:
+                    st.info("영상 파일 없음")
+
+            with col_v2:
+                st.markdown("**📹 이벤트 후 (5초)**")
+                after_src  = Path(annotated_files[-1]) if annotated_files else (base / f"videos/test_scenario_{scenario_num}.mp4")
+                clip_after = tmp_dir / f"clip_after_{scenario_num}.mp4"
+                if not clip_after.exists() and after_src.exists():
+                    import subprocess
+                    with st.spinner("영상 준비 중..."):
+                        subprocess.run(["ffmpeg", "-y", "-i", str(after_src),
+                                        "-ss", "8", "-c", "copy", str(clip_after)],
+                                       capture_output=True)
+                if clip_after.exists():
+                    st.video(str(clip_after))
+                elif after_src.exists():
+                    st.video(str(after_src))
+                else:
+                    st.info("영상 파일 없음. 드라이버 대시보드에서 먼저 재생해주세요.")
+        else:
+            st.info("ℹ️ 위험 이벤트(DANGER)가 발생한 경우에만 영상 클립이 제공됩니다.")
+
+
+
+render_event_log(selected_company, events)
 
 st.divider()
 
 # ── 반납 리포트 ──
 st.subheader("📊 반납 리포트")
 _rep = REPORT_DATA.get(selected_company, REPORT_DATA["스카이렌터카"])
-if api_scores and isinstance(api_scores, list) and len(api_scores) > 0:
-    _score_df = pd.DataFrame(api_scores)
-else:
-    _score_df = _rep["score_data"]
-_dist_df   = _rep["distance_data"]
-_event_df  = _rep["event_stats"]
+_score_df = pd.DataFrame(api_scores) if (api_scores and isinstance(api_scores, list) and len(api_scores) > 0) else _rep["score_data"]
+_dist_df  = _rep["distance_data"]
+_event_df = _rep["event_stats"]
 
 col3, col4, col5 = st.columns(3)
 with col3:

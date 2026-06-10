@@ -2,7 +2,8 @@ import requests
 import streamlit as st
 
 # BASE_URL
-BASE_URL = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
+BASE_URL = "https://blast-london-istanbul-kitty.trycloudflare.com"
+#BASE_URL = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
 #BASE_URL = "http://localhost:8000"
 
 def _headers():

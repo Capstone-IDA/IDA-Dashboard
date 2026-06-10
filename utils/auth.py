@@ -2,7 +2,8 @@ import streamlit as st
 import requests
 
 # ── 백엔드 서버 주소 (ngrok 또는 localhost) ──
-BASE_URL = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
+#BASE_URL = "https://blast-london-istanbul-kitty.trycloudflare.com"
+BASE_URL = "https://blast-london-istanbul-kitty.trycloudflare.com"
 #BASE_URL = "http://localhost:8000"
 
 # 데모용 오프라인 계정 (서버 완전 미연결 시에만 사용)

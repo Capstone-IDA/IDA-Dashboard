@@ -6,7 +6,7 @@ import numpy as np
 from PIL import ImageFont, ImageDraw, Image
 
 # ── 설정 ──
-API_BASE = "https://unfocusedly-pleurocarpous-gina.ngrok-free.dev"
+BASE_URL = "https://blast-london-istanbul-kitty.trycloudflare.com"
 
 DRIVER_MAP = {
     "driver1": ("videos/test_scenario_1.mp4", "sess_scenario_1_0602_131649"),
@@ -75,7 +75,7 @@ def fetch_logs(session_id: str, limit: int = 1000) -> dict:
     """API에서 로그 데이터 가져오기"""
     try:
         r = requests.get(
-            f"{API_BASE}/logs",
+            f"{BASE_URL}/logs",
             params={"session_id": session_id, "limit": limit},
             headers={"ngrok-skip-browser-warning": "true"},
             timeout=30
@@ -121,7 +121,6 @@ def build_banner_frames(frame_map: dict, streak: int = 3) -> set:
     return danger_frames
 
 def annotate_video(src: Path, frames: list, out: Path):
-    """AI bbox 구워진 영상 위에 배너만 덧그려서 저장"""
     cap    = cv2.VideoCapture(str(src))
     fps    = cap.get(cv2.CAP_PROP_FPS) or 24
     width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
