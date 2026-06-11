@@ -6,13 +6,19 @@ import numpy as np
 from PIL import ImageFont, ImageDraw, Image
 
 # ── 설정 ──
-BASE_URL = "https://blast-london-istanbul-kitty.trycloudflare.com"
+BASE_URL = "https://practitioner-productivity-reduction-manufacturer.trycloudflare.com"
 
 DRIVER_MAP = {
     "driver1": ("videos/test_scenario_1.mp4", "sess_scenario_1_0602_131649"),
     "driver2": ("videos/test_scenario_2.mp4", "sess_scenario_2_0602_131649"),
     "driver3": ("videos/test_scenario_3.mp4", "sess_scenario_3_0602_131649"),
     "driver4": ("videos/test_scenario_4.mp4", "sess_scenario_4_0602_131649"),
+}
+
+# 특정 세션에서 오탐(false-positive)으로 확인된 collision_warning 구간을 배너 대상에서 제외
+# 값은 "탐지 frame_number" 범위 (frames 데이터의 frame_number 기준, 영상 프레임idx 아님)
+EXCLUDE_DETECTION_RANGES = {
+    "sess_scenario_3_0602_131649": [(693, 751)],  # 5번 구간: 실제 위험 없음 (모델 오탐으로 추정)
 }
 
 # ── 한글 폰트 로드 (없으면 None → OpenCV 기본) ──
@@ -84,43 +90,33 @@ def fetch_logs(session_id: str, limit: int = 1000) -> dict:
     except Exception as e:
         return {"total_count": 0, "frames": [], "error": str(e)}
 
-def build_frame_map(frames: list) -> dict:
-    """frame_number → 해당 프레임 최고 위험도 (전체 객체 기준)"""
-    fm = {}
-    for f in frames:
-        risks = [obj["risk_level"] for obj in f.get("objects", [])]
-        if "danger" in risks:
-            fm[f["frame_number"]] = "danger"
-        elif "warning" in risks:
-            fm[f["frame_number"]] = "warning"
+def build_banner_frames(frames: list, gap_fill: int = 12, min_run: int = 24) -> set:
+    """BE collision_warning 판정 기반 배너 프레임 집합
+    - gap_fill: 짧은 끊김(<=gap_fill 프레임)은 메움
+    - min_run: 끊김 메운 후, min_run 프레임 미만인 짧은 구간(노이즈/오탐)은 제거
+    """
+    flagged = sorted(f["frame_number"] for f in frames if f.get("collision_warning"))
+    if not flagged:
+        return set()
+
+    # 1) 끊김 메우기: 연속 구간으로 그룹화
+    groups = [[flagged[0]]]
+    for fn in flagged[1:]:
+        if fn - groups[-1][-1] <= gap_fill:
+            # 끊긴 구간도 포함해서 메움
+            groups[-1].extend(range(groups[-1][-1] + 1, fn + 1))
         else:
-            fm[f["frame_number"]] = "safe"
-    return fm
+            groups.append([fn])
 
-def build_banner_frames(frame_map: dict, streak: int = 3) -> set:
-    """연속 streak프레임 이상 danger인 프레임 번호 집합 반환"""
-    sorted_frames = sorted(frame_map.keys())
-    danger_frames = set()
-    consecutive = 0
-    streak_start = []
+    # 2) 최소 길이 미만 구간 제거 (짧은 노이즈/오탐 컷)
+    banner = set()
+    for g in groups:
+        if len(g) >= min_run:
+            banner.update(g)
 
-    for fn in sorted_frames:
-        if frame_map[fn] == "danger":
-            consecutive += 1
-            streak_start.append(fn)
-        else:
-            if consecutive >= streak:
-                danger_frames.update(streak_start)
-            consecutive = 0
-            streak_start = []
+    return banner
 
-    # 마지막 구간 처리
-    if consecutive >= streak:
-        danger_frames.update(streak_start)
-
-    return danger_frames
-
-def annotate_video(src: Path, frames: list, out: Path):
+def annotate_video(src: Path, frames: list, out: Path, session_id: str = ""):
     cap    = cv2.VideoCapture(str(src))
     fps    = cap.get(cv2.CAP_PROP_FPS) or 24
     width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -133,12 +129,21 @@ def annotate_video(src: Path, frames: list, out: Path):
         fps, (width, height)
     )
 
+    total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+
     font_lg = load_font(42)
 
-    frame_map     = build_frame_map(frames)
-    banner_frames = build_banner_frames(frame_map, streak=8)
-    print(f"[DEBUG] 배너 표시 프레임 수: {len(banner_frames)}")
-    print(f"[DEBUG] 배너 프레임 목록: {sorted(banner_frames)}")
+    banner_frames = build_banner_frames(frames)
+
+    # 오탐으로 확인된 구간 제외
+    exclude_ranges = EXCLUDE_DETECTION_RANGES.get(session_id, [])
+    for (a, b) in exclude_ranges:
+        banner_frames -= set(range(a, b + 1))
+
+    # 탐지 frame_number(샘플링 fps)와 영상 프레임 인덱스(원본 fps) 스케일 보정
+    max_det = max((f["frame_number"] for f in frames), default=total - 1) + 1
+    scale = max_det / total
+    print(f"[DEBUG] 배너 표시 프레임 수: {len(banner_frames)}, 스케일: {scale:.4f}")
 
     frame_idx = 0
     while True:
@@ -146,8 +151,8 @@ def annotate_video(src: Path, frames: list, out: Path):
         if not ret:
             break
 
-        # ── 배너 (연속 3프레임 이상 danger인 경우만) ──
-        if frame_idx in banner_frames:
+        # ── 배너 (BE collision_warning 판정 기반) ──
+        if int(round(frame_idx * scale)) in banner_frames:
             frame = draw_banner(frame, "추돌 주의", font_lg, width, height)
 
         # REC 표시
@@ -236,8 +241,8 @@ def render_driver_dashboard():
                 import time
                 annotated_path = cache_dir / f"ida_annotated_{user_id}_{session_id}_{int(time.time())}.mp4"
 
-        with st.spinner("📡 DB에서 감지 데이터 불러오는 중..."):
-            data = fetch_logs(session_id)
+        with st.spinner("DB에서 감지 데이터 불러오는 중..."):
+            data = fetch_logs(session_id, limit=10000)
 
         if data.get("error"):
             st.error(f"API 오류: {data['error']}")
@@ -249,8 +254,8 @@ def render_driver_dashboard():
         if len(frames) == 0:
             st.warning("감지 데이터 없음 — 원본 영상으로 재생합니다.")
 
-        with st.spinner(f"🎬 영상 생성 중... ({len(frames)}프레임)"):
-            annotate_video(raw_path, frames, annotated_path)
+        with st.spinner(f"영상 생성 중... ({len(frames)}프레임)"):
+            annotate_video(raw_path, frames, annotated_path, session_id=session_id)
 
         st.session_state[cache_key] = str(annotated_path)
 

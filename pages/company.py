@@ -4,6 +4,7 @@ import plotly.express as px
 import time
 import json
 import os as _os
+from pathlib import Path
 from utils.auth import is_logged_in, get_company_name, get_role, get_company_id, is_online
 from utils.sidebar import render_sidebar
 from utils.api import api_get
@@ -58,6 +59,29 @@ def time_offset(base_time_str: str, offset_minutes: int) -> str:
         return f"{total // 60:02d}:{total % 60:02d}:{s:02d}"
     except Exception:
         return base_time_str
+
+def time_offset_seconds(base_time_str: str, offset_seconds: float) -> str:
+    """초 단위로 시간을 빼서 반환 (이벤트별로 더 세밀한 시간 차이를 표시)"""
+    try:
+        h, m, s = map(int, base_time_str.split(":"))
+        total = max(0, h * 3600 + m * 60 + s - int(round(offset_seconds)))
+        h2, rem = divmod(total, 3600)
+        m2, s2 = divmod(rem, 60)
+        return f"{h2:02d}:{m2:02d}:{s2:02d}"
+    except Exception:
+        return base_time_str
+
+def josa(word: str, has_batchim: str, no_batchim: str) -> str:
+    """한글 단어의 마지막 글자 받침 유무에 따라 적절한 조사 반환
+    예: josa("박민수", "은", "는") -> "는" / josa("최지현", "은", "는") -> "은"
+    """
+    if not word:
+        return no_batchim
+    last = word[-1]
+    code = ord(last) - 0xAC00
+    if 0 <= code <= 11171:
+        return has_batchim if (code % 28) != 0 else no_batchim
+    return no_batchim
 
 # ── active_session.json ──
 active_session_data = {}
@@ -124,49 +148,115 @@ DRIVER_SESSION_MAP = {
     "driver3": {"세션": "sess_scenario_3_0602_131649", "운전자": "박민수", "면허번호": "인천-15-667788", "차량번호": "11바 1234", "company": "comp_jeju"},
     "driver4": {"세션": "sess_scenario_4_0602_131649", "운전자": "최지현", "면허번호": "경남-03-990011", "차량번호": "22사 5678", "company": "comp_jeju"},
 }
-BASE_URL = "https://blast-london-istanbul-kitty.trycloudflare.com"
+BASE_URL = "https://practitioner-productivity-reduction-manufacturer.trycloudflare.com"
 
-def _has_danger_banner(session_id: str) -> bool:
+# 특정 세션에서 오탐(false-positive)으로 확인된 collision_warning 구간 제외
+# (driver_view.py의 EXCLUDE_DETECTION_RANGES와 동일하게 유지)
+EXCLUDE_DETECTION_RANGES = {
+    "sess_scenario_3_0602_131649": [(693, 751)],
+}
+
+PLATE_SCENARIO_NUM = {"driver1": 1, "driver2": 2, "driver3": 3, "driver4": 4}
+
+def _get_danger_event_groups(session_id: str, src_video_path, gap_fill: int = 12, min_run: int = 24):
+    """collision_warning 기반 위험 구간을 영상 시간(초) 단위 리스트로 반환
+    [{"start_sec":..,"end_sec":..}, ...]  (오탐/짧은구간 필터링 + 영상 시간 변환 포함)
+    """
     try:
         import requests
         r = requests.get(f"{BASE_URL}/logs",
             params={"session_id": session_id, "limit": 10000},
             headers={"ngrok-skip-browser-warning": "true"}, timeout=10)
         frames = r.json().get("frames", [])
-        consecutive = 0
-        for f in sorted(frames, key=lambda x: x["frame_number"]):
-            risks = [o["risk_level"] for o in f.get("objects", [])]
-            if "danger" in risks:
-                consecutive += 1
-                if consecutive >= 8:
-                    return True
-            else:
-                consecutive = 0
     except Exception:
-        pass
-    return False
+        return []
+
+    flagged = sorted(f["frame_number"] for f in frames if f.get("collision_warning"))
+    if not flagged:
+        return []
+
+    # 끊김 메우기 (gap_fill 이하 간격은 하나로 이어붙임)
+    groups = [[flagged[0]]]
+    for fn in flagged[1:]:
+        if fn - groups[-1][-1] <= gap_fill:
+            groups[-1].extend(range(groups[-1][-1] + 1, fn + 1))
+        else:
+            groups.append([fn])
+
+    # 최소 길이 미만(노이즈/오탐) 구간 제거
+    groups = [g for g in groups if len(g) >= min_run]
+
+    # 알려진 오탐 구간 제외
+    excl = EXCLUDE_DETECTION_RANGES.get(session_id, [])
+    final_groups = []
+    for g in groups:
+        a, b = g[0], g[-1]
+        if any(a >= ea and b <= eb for (ea, eb) in excl):
+            continue
+        final_groups.append((a, b))
+
+    if not final_groups:
+        return []
+
+    # 영상 fps/총프레임 읽어서 scale 계산 (탐지 frame_number → 영상 프레임)
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(src_video_path))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 24
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+        cap.release()
+    except Exception:
+        fps, total = 24, len(frames) or 1
+
+    max_det = max(f["frame_number"] for f in frames) + 1
+    scale = (max_det / total) if total else 1
+    if scale <= 0:
+        scale = 1
+
+    out = []
+    video_duration = total / fps
+    for (a, b) in final_groups:
+        out.append({
+            "start_sec": (a / scale) / fps,
+            "end_sec":   (b / scale) / fps,
+            "video_duration": video_duration,
+        })
+    return out
+
 
 _live_events = {"스카이렌터카": [], "제주렌터카": []}
 _comp_name_map = {"comp_sky": "스카이렌터카", "comp_jeju": "제주렌터카"}
-_event_label = {"driver4": "전방 차량 충돌 위험", "driver2": "전방 차량 접근 감지", "driver1": "급제동 감지", "driver3": "고속 주행 감지"}
 
 for did, info in DRIVER_SESSION_MAP.items():
-    if _has_danger_banner(info["세션"]):
-        comp = _comp_name_map.get(info["company"], "")
-        score = 22 if did == "driver4" else 78
-        severity = "위험" if did == "driver4" else "경고"
+    comp = _comp_name_map.get(info["company"], "")
+    scenario_num = PLATE_SCENARIO_NUM.get(did, 1)
+    _src_video = Path(_os.getcwd()) / f"videos/test_scenario_{scenario_num}.mp4"
+    _groups = _get_danger_event_groups(info["세션"], _src_video)
+    _running_total = 100  # 운전자별 누적 점수 (100점 만점에서 시작)
+    for g in _groups:
+        # 영상 끝 시점 기준으로 "몇 초 전" 위험이 있었는지 → 시:분:초로 환산해 표시
+        seconds_ago = max(0, g["video_duration"] - g["end_sec"])
+        duration = g["end_sec"] - g["start_sec"]
+        # 감점 기준표: "근접 객체 상태 급가속·급제동"(-10점)을 기본으로,
+        # 위험 지속시간이 길수록 추가 감점 → 최대 "충돌 위험"(-15점)까지
+        deduction = max(-15, -10 - round(duration * 3))
+        _running_total = max(0, _running_total + deduction)
         _live_events[comp].append({
-            "시간": time_offset(_base_t, {"driver1": 4, "driver2": 1, "driver3": 2, "driver4": 6}.get(did, 5)),
+            "시간": time_offset_seconds(_base_t, seconds_ago),
             "운전자": info["운전자"], "면허번호": info["면허번호"],
-            "차량번호": info["차량번호"], "이벤트": _event_label.get(did, "위험 이벤트"),
-            "점수": score, "위험도": severity,
+            "차량번호": info["차량번호"], "이벤트": "전방 차량 충돌 위험",
+            "감점": deduction,
+            "총점": _running_total,
+            "_blacklist_score": 22,  # 블랙리스트 추가 시 부여할 누적 점수 (Red 등급, 평이한 값)
+            "위험도": "위험",
+            "_start_sec": g["start_sec"], "_end_sec": g["end_sec"],
         })
 
 ALL_EVENTS = _live_events if any(_live_events.values()) else {
     "스카이렌터카": [],
     "제주렌터카": [
         {"시간": time_offset(_base_t, 6), "운전자": "최지현", "면허번호": "경남-03-990011",
-         "차량번호": "22사 5678", "이벤트": "전방 차량 충돌 위험", "점수": 22, "위험도": "위험"},
+         "차량번호": "22사 5678", "이벤트": "전방 차량 충돌 위험", "감점": -15, "총점": 85, "_blacklist_score": 22, "위험도": "위험"},
     ],
 }
 
@@ -408,13 +498,17 @@ def render_event_log(selected_company, events):
         st.success("위험 이벤트가 없습니다.")
         return
 
-    # 테이블 표시
+    # 테이블 표시 (내부용 _start_sec/_end_sec/_blacklist_score 컬럼은 표시에서 제외)
+    _display_cols = ["시간", "운전자", "면허번호", "차량번호", "이벤트", "감점", "총점", "위험도"]
     events_df = pd.DataFrame(events)
+    events_df = events_df[[c for c in _display_cols if c in events_df.columns]]
     styled_events = events_df.style
     if "위험도" in events_df.columns:
         styled_events = styled_events.map(danger_color, subset=["위험도"])
-    if "점수" in events_df.columns:
-        styled_events = styled_events.map(score_color, subset=["점수"])
+    if "감점" in events_df.columns:
+        styled_events = styled_events.map(score_color, subset=["감점"])
+    if "총점" in events_df.columns:
+        styled_events = styled_events.map(score_color, subset=["총점"])
     selected_row = st.dataframe(
         styled_events, use_container_width=True, hide_index=True,
         on_select="rerun", selection_mode="single-row",
@@ -435,7 +529,7 @@ def render_event_log(selected_company, events):
 
     ev_license = ev.get("면허번호", "")
     ev_driver  = ev.get("운전자", "")
-    ev_score   = ev.get("점수", 100)
+    ev_score   = ev.get("_blacklist_score", 22)
     plate      = ev.get("차량번호", "")
 
     PLATE_SCENARIO = {"12가 3456": 1, "34나 7890": 2, "11바 1234": 3, "22사 5678": 4}
@@ -483,23 +577,26 @@ def render_event_log(selected_company, events):
                             _c["blacklist"] = True
                 st.rerun(scope="app")  # 앱 전체 rerun → 블랙리스트 테이블 즉시 갱신
         elif is_already_bl:
-            st.info(f"ℹ️ {ev_driver}은 이미 블랙리스트에 등록되어 있습니다.")
+            st.info(f"ℹ️ {ev_driver}{josa(ev_driver, '은', '는')} 이미 블랙리스트에 등록되어 있습니다.")
 
         st.divider()
 
-        # 영상 클립 (danger 감지된 시나리오면 자동으로 표시)
-        _driver_session = DRIVER_SESSION_MAP.get(driver_id, {}).get("세션", "")
-        _has_danger = _has_danger_banner(_driver_session)
-        if _has_danger:
+        # 영상 클립 (해당 이벤트의 위험 구간 기준 전후 5초)
+        ev_start = ev.get("_start_sec")
+        ev_end   = ev.get("_end_sec")
+
+        if ev_start is not None:
             col_v1, col_v2 = st.columns(2)
             with col_v1:
                 st.markdown("**📹 이벤트 전 (5초)**")
                 before_src  = base / f"videos/test_scenario_{scenario_num}.mp4"
-                clip_before = tmp_dir / f"clip_before_{scenario_num}.mp4"
+                clip_before = tmp_dir / f"clip_before_{scenario_num}_{sel_idx}.mp4"
                 if not clip_before.exists() and before_src.exists():
                     import subprocess
+                    ss_before = max(0.0, ev_start - 5)
                     with st.spinner("영상 준비 중..."):
-                        subprocess.run(["ffmpeg", "-y", "-i", str(before_src),
+                        subprocess.run(["ffmpeg", "-y", "-ss", f"{ss_before:.2f}",
+                                        "-i", str(before_src),
                                         "-t", "5", "-c", "copy", str(clip_before)],
                                        capture_output=True)
                 if clip_before.exists():
@@ -512,12 +609,13 @@ def render_event_log(selected_company, events):
             with col_v2:
                 st.markdown("**📹 이벤트 후 (5초)**")
                 after_src  = Path(annotated_files[-1]) if annotated_files else (base / f"videos/test_scenario_{scenario_num}.mp4")
-                clip_after = tmp_dir / f"clip_after_{scenario_num}.mp4"
+                clip_after = tmp_dir / f"clip_after_{scenario_num}_{sel_idx}.mp4"
                 if not clip_after.exists() and after_src.exists():
                     import subprocess
                     with st.spinner("영상 준비 중..."):
-                        subprocess.run(["ffmpeg", "-y", "-i", str(after_src),
-                                        "-ss", "8", "-c", "copy", str(clip_after)],
+                        subprocess.run(["ffmpeg", "-y", "-ss", f"{ev_start:.2f}",
+                                        "-i", str(after_src),
+                                        "-t", "5", "-c", "copy", str(clip_after)],
                                        capture_output=True)
                 if clip_after.exists():
                     st.video(str(clip_after))
